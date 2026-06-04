@@ -1,0 +1,82 @@
+import tempfile
+import unittest
+from pathlib import Path
+
+from impedance_studio.storage import StudioStore
+
+
+class StorageTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = StudioStore(Path(self.tmp.name) / "studio.sqlite3")
+
+    def tearDown(self):
+        self.store.close()
+        self.tmp.cleanup()
+
+    def test_seeded_store_has_project_datasets_and_model(self):
+        projects = self.store.list_projects()
+        datasets = self.store.list_datasets(projects[0]["id"])
+        models = self.store.list_models(projects[0]["id"])
+
+        self.assertEqual(projects[0]["name"], "Battery Lab")
+        self.assertGreaterEqual(len(datasets), 2)
+        self.assertGreaterEqual(len(models), 1)
+
+    def test_circuit_validation_reports_joint_pair(self):
+        validation = self.store.validate_template(
+            {
+                "circuit_1": "RC0",
+                "circuit_2": "RCn0",
+                "initial_guess": [1, 2, 3, 4],
+                "constants": {},
+            }
+        )
+
+        self.assertTrue(validation["valid"])
+        self.assertIn("RC0", validation["elements_1"])
+        self.assertIn("RCn0", validation["elements_2"])
+
+    def test_model_json_round_trip_and_fitted_as_initial(self):
+        project = self.store.list_projects()[0]
+        model = self.store.create_model(
+            {
+                "project_id": project["id"],
+                "name": "Snapshot",
+                "kind": "snapshot",
+                "circuit_1": "RC0",
+                "circuit_2": "RCn0",
+                "initial_guess": [1, 2],
+                "fitted_parameters": [3, 4],
+            }
+        )
+
+        exported = self.store.export_model_json(model["id"])
+        self.assertEqual(exported["Parameters"], [3, 4])
+
+        loaded = self.store.load_model_as_initial(model["id"])
+        self.assertEqual(loaded["kind"], "template")
+        self.assertEqual(loaded["initial_guess"], [3, 4])
+
+    def test_batch_joint_fit_persists_run_and_snapshot(self):
+        project = self.store.list_projects()[0]
+        datasets = self.store.list_datasets(project["id"])[:2]
+        model = self.store.list_models(project["id"])[0]
+
+        run = self.store.run_joint_fit(
+            {
+                "project_id": project["id"],
+                "model_id": model["id"],
+                "dataset_ids": [dataset["id"] for dataset in datasets],
+            },
+            batch=True,
+        )
+
+        self.assertEqual(run["mode"], "batch-joint-fit")
+        self.assertEqual(len(run["items"]), 2)
+        self.assertEqual(len(run["snapshots"]), 2)
+        self.assertEqual(self.store.list_runs(project["id"])[0]["status"], "completed")
+
+
+if __name__ == "__main__":
+    unittest.main()

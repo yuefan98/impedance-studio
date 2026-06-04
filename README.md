@@ -7,7 +7,12 @@ The project is intentionally hybrid:
 - Hosted mode uses Vercel for the web app and Supabase for auth, database, storage, and project metadata.
 - Local mode lets sensitive-data users clone the repository and run the workflow without uploading private measurements to a cloud service.
 
-This repository currently contains only project foundations and product direction. No application scaffold has been created yet.
+This repository now contains the first MVP scaffold:
+
+- A Next.js workbench UI.
+- A local Python analysis service with SQLite persistence.
+- A Supabase schema draft for hosted persistence.
+- No-cloud local mode for sensitive data workflows.
 
 ## Product Goals
 
@@ -29,11 +34,13 @@ This repository currently contains only project foundations and product directio
 1. Create or select a project.
 2. Import EIS and 2nd-NLEIS data from local files or batch folders.
 3. Normalize, validate, and preview frequency-domain data before fitting.
-4. Queue model fits and validation runs.
-5. Visualize Nyquist, Bode, residual, second-harmonic, and comparison plots.
-6. Store run metadata, fitted parameters, validation summaries, and generated artifacts.
-7. Compare runs across datasets, cells, model families, or processing settings.
-8. Export processed data, figures, reports, and machine-readable results.
+4. Define impedance.py/nleis.py-style circuit strings and parameter tables.
+5. Queue simultaneous EIS + 2nd-NLEIS joint fits or batch joint fits.
+6. Save reusable model templates and fitted model snapshots.
+7. Visualize Nyquist, Bode, residual, second-harmonic, and comparison plots.
+8. Store run metadata, fitted parameters, validation summaries, and generated artifacts.
+9. Compare runs across datasets, cells, model families, or processing settings.
+10. Export processed data, figures, reports, and machine-readable results.
 
 ## Architecture Direction
 
@@ -46,6 +53,36 @@ The likely stack is:
 - Local mode: the same repository should run against local configuration and local data paths.
 
 The analysis layer should stay behind a clear service or worker boundary. Python fitting and validation code should not be mixed into frontend components.
+
+## Run Locally
+
+Install the web dependencies:
+
+```bash
+npm install
+```
+
+Start the local analysis service:
+
+```bash
+npm run service
+```
+
+In another terminal, start the web app:
+
+```bash
+npm run dev
+```
+
+Open the app at `http://localhost:3000`.
+
+By default, local state is stored in:
+
+```text
+~/.impedance-studio/impedance_studio.sqlite3
+```
+
+Use `IMPEDANCE_STUDIO_DB=/path/to/private.sqlite3 npm run service` to isolate a sensitive project.
 
 ## Data And Privacy Model
 
@@ -64,6 +101,15 @@ Sensitive workflows should support local-only operation:
 - Clear separation between reproducible code and private measurements.
 
 Supabase tables in exposed schemas must use Row Level Security. Browser code must never receive service-role credentials.
+
+## Model Library
+
+The MVP supports two saved model types:
+
+- Templates: circuit strings, initial guesses, bounds, constants, shared parameter mappings, and metadata.
+- Fitted snapshots: completed fit parameters, confidence estimates, validation summaries, source run IDs, and plot-ready series.
+
+Snapshots can be loaded as completed results or converted into a new template using fitted parameters as the next initial guesses. This follows the `fitted_as_initial` pattern supported by `impedance.py` and `nleis.py`.
 
 ## Scientific Workbench Design Principles
 
@@ -91,3 +137,14 @@ The first real app design should center on a workbench layout:
 Do not commit raw experimental data, private analysis output, local environment files, or service credentials. Use ignored local paths for measurements and generated artifacts.
 
 Authoritative setup details for Next.js, Vercel, and Supabase should be verified against current official documentation before implementation because those platforms change frequently.
+
+## Verification
+
+Useful local checks:
+
+```bash
+npm run lint
+npm run build
+npm run test:python
+python3 -m compileall service
+```

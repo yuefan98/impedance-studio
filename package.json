@@ -1,0 +1,29 @@
+{
+  "name": "impedance-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hybrid local/cloud scientific workbench for EIS and 2nd-NLEIS analysis.",
+  "scripts": {
+    "dev": "next dev",
+    "service": "PYTHONPATH=service python3 -m impedance_studio.server",
+    "test:python": "PYTHONPATH=service python3 -m unittest discover -s service/tests",
+    "build": "next build",
+    "lint": "tsc --noEmit",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "playwright-core": "^1.60.0",
+    "typescript": "latest"
+  },
+  "overrides": {
+    "postcss": "^8.5.10"
+  }
+}
