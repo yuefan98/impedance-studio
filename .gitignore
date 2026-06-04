@@ -12,6 +12,8 @@ Thumbs.db
 !.env.example
 *.pem
 *.key
+AGENTS.md
+agents.md
 
 # Python caches, environments, and build output
 __pycache__/
