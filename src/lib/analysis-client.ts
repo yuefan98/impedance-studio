@@ -66,9 +66,10 @@ export const analysisClient = {
   exportModel: (modelId: string) => request<{ model_json: Record<string, unknown> }>(`/models/${modelId}/export-json`),
   importDataset: (body: {
     project_id: string;
-    mode: "table" | "autolab" | "synthetic";
+    mode: "table" | "autolab" | "synthetic" | "manuscript";
     name: string;
     kind: "EIS" | "2nd-NLEIS";
+    sample_index?: number;
     source_name?: string;
     text?: string;
   }) =>

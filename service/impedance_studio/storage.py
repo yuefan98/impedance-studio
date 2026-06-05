@@ -10,6 +10,7 @@ from typing import Any, Optional, Union
 
 from .circuits import validate_circuit_pair
 from .importers import generate_synthetic_dataset, parse_autolab_import, parse_table_import
+from .sample_data import load_manuscript_samples, manuscript_sample
 
 
 def default_db_path() -> Path:
@@ -96,6 +97,11 @@ class StudioStore:
         text = payload.get("text", "")
         if mode == "autolab":
             parsed = parse_autolab_import(text, name=name, kind=kind, source_name=source_name)
+        elif mode == "manuscript":
+            sample_index = int(payload.get("sample_index") or self._dataset_count(project_id, kind))
+            parsed = manuscript_sample(kind, sample_index)
+            if payload.get("name"):
+                parsed = parsed | {"name": name}
         elif mode == "synthetic":
             parsed = generate_synthetic_dataset(kind, name)
         else:
@@ -400,16 +406,9 @@ class StudioStore:
         count = self.connection.execute("select count(*) from projects").fetchone()[0]
         if count:
             return
-        project = self.create_project("Battery Lab")
-        for cycle in ("001", "010", "020"):
-            self._insert_dataset(
-                project["id"],
-                generate_synthetic_dataset("EIS", f"Cell_A_25C_cycle_{cycle}", points=64),
-            )
-            self._insert_dataset(
-                project["id"],
-                generate_synthetic_dataset("2nd-NLEIS", f"Cell_A_25C_cycle_{cycle}_2nd", points=48),
-            )
+        project = self.create_project("2nd-NLEIS Manuscript Part II")
+        for dataset in load_manuscript_samples():
+            self._insert_dataset(project["id"], dataset)
         self.create_model(
             {
                 "project_id": project["id"],
@@ -475,6 +474,14 @@ class StudioStore:
         if not row:
             return self._insert_dataset(project_id, generate_synthetic_dataset("EIS", "Synthetic EIS"))["id"]
         return row["id"]
+
+    def _dataset_count(self, project_id: str, kind: str) -> int:
+        return int(
+            self.connection.execute(
+                "select count(*) from datasets where project_id = ? and kind = ?",
+                (project_id, kind),
+            ).fetchone()[0]
+        )
 
     def _get_dataset(self, dataset_id: str) -> dict[str, Any]:
         row = self.connection.execute("select * from datasets where id = ?", (dataset_id,)).fetchone()

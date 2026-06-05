@@ -13,6 +13,7 @@ This repository now contains the first MVP scaffold:
 - A local Python analysis service with SQLite persistence.
 - A Supabase schema draft for hosted persistence.
 - No-cloud local mode for sensitive data workflows.
+- Bundled sample data from the public `2nd-NLEIS-manuscripts` Part II dataset for UI and batch-fit validation.
 
 ## Product Goals
 
@@ -83,6 +84,14 @@ By default, local state is stored in:
 ```
 
 Use `IMPEDANCE_STUDIO_DB=/path/to/private.sqlite3 npm run service` to isolate a sensitive project.
+
+## Sample Data
+
+The default local database is seeded from the public Part II data files in:
+
+https://github.com/yuefan98/2nd-NLEIS-manuscripts/tree/main/Part%20II/data
+
+Each condition is imported as a paired EIS (`Z1s_*`) and 2nd-NLEIS (`Z2s_*`) dataset using the matching `freq_*` file. The service averages the three replicate impedance rows per file into plot-ready real/imaginary impedance series.
 
 ## Data And Privacy Model
 

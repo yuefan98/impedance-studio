@@ -19,9 +19,26 @@ class StorageTests(unittest.TestCase):
         datasets = self.store.list_datasets(projects[0]["id"])
         models = self.store.list_models(projects[0]["id"])
 
-        self.assertEqual(projects[0]["name"], "Battery Lab")
-        self.assertGreaterEqual(len(datasets), 2)
+        self.assertEqual(projects[0]["name"], "2nd-NLEIS Manuscript Part II")
+        self.assertEqual(len(datasets), 20)
+        self.assertTrue(all("Part II/data" in dataset["source_name"] for dataset in datasets))
         self.assertGreaterEqual(len(models), 1)
+
+    def test_import_manuscript_sample_cycles_by_kind(self):
+        project = self.store.create_project("Sample Import")
+
+        first = self.store.import_dataset(
+            {"project_id": project["id"], "mode": "manuscript", "kind": "EIS", "name": "first"}
+        )
+        second = self.store.import_dataset(
+            {"project_id": project["id"], "mode": "manuscript", "kind": "2nd-NLEIS", "name": "second"}
+        )
+
+        self.assertEqual(first["kind"], "EIS")
+        self.assertEqual(second["kind"], "2nd-NLEIS")
+        self.assertEqual(first["point_count"], 66)
+        self.assertEqual(second["point_count"], 66)
+        self.assertIn("Part II/data", first["source_name"])
 
     def test_circuit_validation_reports_joint_pair(self):
         validation = self.store.validate_template(

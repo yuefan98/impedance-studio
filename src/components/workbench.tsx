@@ -205,12 +205,12 @@ export function Workbench() {
     });
   }
 
-  async function importSynthetic(kind: "EIS" | "2nd-NLEIS") {
+  async function importManuscriptSample(kind: "EIS" | "2nd-NLEIS") {
     await runAction("import", async () => {
       await analysisClient.importDataset({
         project_id: activeProjectId,
-        mode: "synthetic",
-        name: `${kind === "EIS" ? "Cell_A" : "Cell_A_2nd"}_import_${datasets.length + 1}`,
+        mode: "manuscript",
+        name: `${kind === "EIS" ? "PartII_EIS" : "PartII_2nd"}_sample_${datasets.length + 1}`,
         kind,
       });
       await refresh();
@@ -338,8 +338,8 @@ export function Workbench() {
           ))}
           {!datasets.length && <p className="empty-state">No datasets yet.</p>}
           <div className="mini-actions">
-            <button onClick={() => void importSynthetic("EIS")}>Add EIS</button>
-            <button onClick={() => void importSynthetic("2nd-NLEIS")}>Add 2nd</button>
+            <button onClick={() => void importManuscriptSample("EIS")}>Sample EIS</button>
+            <button onClick={() => void importManuscriptSample("2nd-NLEIS")}>Sample 2nd</button>
             <button className="danger" onClick={() => void deleteActiveDataset()}>Delete</button>
           </div>
         </SidebarGroup>

@@ -106,6 +106,51 @@ def parse_autolab_import(text: str, *, name: str, kind: str, source_name: str) -
     return parse_table_import(table, name=name, kind=kind, source_name=source_name)
 
 
+def parse_manuscript_pair(
+    frequency_text: str,
+    impedance_text: str,
+    *,
+    name: str,
+    kind: str,
+    source_name: str,
+) -> dict[str, Any]:
+    """Parse Part II manuscript data files into averaged complex impedance rows."""
+    frequencies = [float(value) for value in frequency_text.split()]
+    if not frequencies:
+        raise ValueError("frequency file contains no values")
+
+    replicate_rows: list[list[float]] = []
+    expected_values = len(frequencies) * 2
+    for line in impedance_text.splitlines():
+        values = [float(value) for value in line.split()]
+        if not values:
+            continue
+        if len(values) != expected_values:
+            raise ValueError(
+                f"impedance row has {len(values)} values; expected {expected_values} "
+                f"for {len(frequencies)} frequency points"
+            )
+        replicate_rows.append(values)
+    if not replicate_rows:
+        raise ValueError("impedance file contains no replicate rows")
+
+    rows: list[dict[str, float]] = []
+    for idx, frequency in enumerate(frequencies):
+        real = sum(row[idx * 2] for row in replicate_rows) / len(replicate_rows)
+        imag = sum(row[idx * 2 + 1] for row in replicate_rows) / len(replicate_rows)
+        rows.append(
+            {
+                "frequency": frequency,
+                "z_real": real,
+                "z_imag": imag,
+                "z_abs": math.hypot(real, imag),
+                "phase": math.degrees(math.atan2(imag, real)),
+            }
+        )
+
+    return summarize_dataset(kind, name, rows, source_name=source_name)
+
+
 def summarize_dataset(
     kind: str,
     name: str,
