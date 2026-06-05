@@ -77,12 +77,12 @@ export const analysisClient = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  runJointFit: (body: { project_id: string; model_id: string; dataset_ids: string[] }) =>
+  runJointFit: (body: { project_id: string; model_id: string; dataset_ids: string[]; run_name?: string }) =>
     request<{ run: Run }>("/runs/joint-fit", {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  runBatchJointFit: (body: { project_id: string; model_id: string; dataset_ids: string[] }) =>
+  runBatchJointFit: (body: { project_id: string; model_id: string; dataset_ids: string[]; run_name?: string }) =>
     request<{ run: Run }>("/runs/batch-joint-fit", {
       method: "POST",
       body: JSON.stringify(body),

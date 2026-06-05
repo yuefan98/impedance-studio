@@ -198,6 +198,7 @@ button.danger:hover {
 .sidebar-search span,
 .control-bar label span,
 .field-readout span,
+.fit-picker label span,
 .models-layout label span,
 .editor-grid label span {
   color: var(--muted);
@@ -223,8 +224,6 @@ button.danger:hover {
 }
 
 .view-switcher button,
-.run-mode-tabs button,
-.plot-tabs button,
 .segmented-control button {
   min-height: 29px;
   border: 0;
@@ -235,8 +234,6 @@ button.danger:hover {
 }
 
 .view-switcher button.active,
-.run-mode-tabs button.active,
-.plot-tabs button.active,
 .segmented-control button.active {
   background: var(--accent-dark);
   color: #fff;
@@ -299,21 +296,75 @@ button.danger:hover {
 
 .sidebar-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 7px;
+  gap: 4px;
   min-height: 33px;
   width: 100%;
   border: 0;
   border-radius: 7px;
   background: transparent;
-  padding: 6px 7px;
+  padding: 2px;
   text-align: left;
 }
 
 .sidebar-row.active {
   background: var(--accent-soft);
   color: #0b635f;
+}
+
+.sidebar-row-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 29px;
+  border: 0;
+  background: transparent;
+  padding: 4px 5px;
+  text-align: left;
+}
+
+.sidebar-row-main.text-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.sidebar-row-main:hover {
+  background: transparent;
+}
+
+.row-delete {
+  min-height: 25px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--danger);
+  padding: 3px 5px;
+  font-size: 10px;
+  opacity: 0.72;
+}
+
+.row-delete:hover {
+  border-color: #f0b8b0;
+  background: var(--danger-soft);
+  opacity: 1;
+}
+
+.sidebar-run-row {
+  display: grid;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-muted);
+  padding: 7px;
+}
+
+.sidebar-run-row span {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-row input {
@@ -350,7 +401,7 @@ button.danger:hover {
 
 .control-bar {
   display: grid;
-  grid-template-columns: minmax(210px, 0.8fr) minmax(420px, 1.8fr) minmax(210px, auto);
+  grid-template-columns: minmax(220px, 1fr) auto;
   align-items: center;
   gap: 14px;
   border: 1px solid var(--border);
@@ -398,13 +449,6 @@ button.danger:hover {
   white-space: nowrap;
 }
 
-.context-selectors {
-  display: grid;
-  grid-template-columns: minmax(200px, 1fr) minmax(240px, 1.2fr);
-  gap: 12px;
-  min-width: 0;
-}
-
 .segmented-control {
   display: flex;
   align-items: center;
@@ -420,8 +464,6 @@ button.danger:hover {
   justify-items: end;
   gap: 7px;
   min-width: 0;
-  padding-left: 14px;
-  border-left: 1px solid var(--border);
 }
 
 .selection-pill {
@@ -529,15 +571,30 @@ button.danger:hover {
   gap: 5px;
 }
 
-.run-mode-tabs,
-.plot-tabs {
+.fit-picker {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 7px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface-muted);
-  padding: 4px;
+  padding: 8px;
+}
+
+.fit-picker label {
+  display: grid;
+  gap: 5px;
+}
+
+.include-toggle {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+
+.include-toggle.active {
+  border-color: rgba(15, 143, 137, 0.4);
+  background: var(--accent-soft);
+  color: #0b635f;
 }
 
 .circuit-readout {
@@ -560,6 +617,31 @@ button.danger:hover {
   white-space: nowrap;
 }
 
+.parameter-summary {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  padding: 8px;
+}
+
+.parameter-summary span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.parameter-summary code {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .stacked-actions {
   display: grid;
   gap: 8px;
@@ -567,11 +649,8 @@ button.danger:hover {
 
 .results-panel {
   display: grid;
-  grid-template-rows: 42px auto minmax(300px, 1fr) auto;
-}
-
-.results-panel .plot-tabs {
-  margin: 12px 12px 0;
+  grid-template-rows: 42px minmax(300px, 1fr) auto;
+  min-height: 0;
 }
 
 .plot-canvas {
@@ -579,9 +658,20 @@ button.danger:hover {
   padding: 12px;
 }
 
+.plot-stack {
+  display: grid;
+  gap: 12px;
+  overflow: auto;
+}
+
+.plot-stack .plot-card {
+  height: auto;
+  min-height: 330px;
+}
+
 .plot-card {
   display: grid;
-  grid-template-rows: 28px minmax(0, 1fr);
+  grid-template-rows: 28px minmax(0, 1fr) auto;
   height: 100%;
   min-height: 290px;
   border: 1px solid var(--border);
@@ -601,15 +691,34 @@ button.danger:hover {
   width: 100%;
   height: 100%;
   min-height: 240px;
+  cursor: crosshair;
 }
 
-.plot-card line {
+.plot-frame {
+  fill: #fbfdff;
+  stroke: var(--border);
+}
+
+.axis-line,
+.plot-card .tick {
   stroke: #9aa9b4;
   stroke-width: 1;
 }
 
 .plot-card .grid {
   stroke: #e8eef2;
+}
+
+.axis-text {
+  fill: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.axis-label {
+  fill: var(--text);
+  font-size: 11px;
+  font-weight: 750;
 }
 
 .plot-card circle {
@@ -626,9 +735,65 @@ button.danger:hover {
 
 .fit-line {
   fill: none;
-  stroke: #d6584f;
-  stroke-dasharray: 7 5;
-  stroke-width: 2.1;
+  stroke: #d9572a;
+  stroke-dasharray: 5 4;
+  stroke-width: 1.8;
+}
+
+.hover-line {
+  stroke: rgba(8, 40, 46, 0.28);
+  stroke-dasharray: 3 3;
+}
+
+.hover-point {
+  fill: #fff;
+  stroke-width: 2.4;
+}
+
+.plot-footer {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.plot-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.plot-legend span,
+.plot-tooltip {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.plot-legend span {
+  display: inline-flex;
+  align-items: center;
+  max-width: 190px;
+  gap: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plot-legend i {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+}
+
+.plot-legend .fit-swatch {
+  background: #d9572a;
+}
+
+.plot-tooltip {
+  min-height: 16px;
 }
 
 .metric-grid {

@@ -23,6 +23,8 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(len(datasets), 20)
         self.assertTrue(all("Part II/data" in dataset["source_name"] for dataset in datasets))
         self.assertGreaterEqual(len(models), 1)
+        self.assertEqual(models[0]["initial_guess"], [0.84, 15.2, 0.001])
+        self.assertEqual(models[0]["shared_parameters"], ["RC0_0 -> RCn0_0", "RC0_1 -> RCn0_1"])
 
     def test_import_manuscript_sample_cycles_by_kind(self):
         project = self.store.create_project("Sample Import")

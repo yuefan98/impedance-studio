@@ -276,7 +276,13 @@ class StudioStore:
                 100,
                 started,
                 _now(),
-                _json({"dataset_count": len(dataset_ids), "fit_mode": "joint"}),
+                _json(
+                    {
+                        "dataset_count": len(dataset_ids),
+                        "fit_mode": "joint",
+                        "run_name": payload.get("run_name") or "Joint fit",
+                    }
+                ),
             ),
         )
         items = []
@@ -417,10 +423,10 @@ class StudioStore:
                 "pinned": True,
                 "circuit_1": "RC0",
                 "circuit_2": "RCn0",
-                "initial_guess": [0.84, 15.2, 0.001, 0.84],
-                "bounds": {"lower": [0, 0, 0, 0], "upper": ["inf", "inf", 1, "inf"]},
+                "initial_guess": [0.84, 15.2, 0.001],
+                "bounds": {"lower": [0, 0, -0.5], "upper": ["inf", "inf", 0.5]},
                 "constants": {},
-                "shared_parameters": ["RC0_0 -> RCn0_0"],
+                "shared_parameters": ["RC0_0 -> RCn0_0", "RC0_1 -> RCn0_1"],
             }
         )
 
@@ -528,6 +534,10 @@ def _decode_model(row: sqlite3.Row) -> dict[str, Any]:
     data["validation_summary"] = _loads(data.pop("validation_json"))
     data["plot_series"] = _loads(data.pop("plot_json"))
     data["pinned"] = bool(data["pinned"])
+    if data["circuit_1"] == "RC0" and data["circuit_2"] == "RCn0":
+        data["initial_guess"] = data["initial_guess"][:3]
+        data["shared_parameters"] = ["RC0_0 -> RCn0_0", "RC0_1 -> RCn0_1"]
+        data["bounds"] = {"lower": [0, 0, -0.5], "upper": ["inf", "inf", 0.5]}
     return data
 
 
