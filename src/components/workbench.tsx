@@ -474,14 +474,15 @@ function TopControls({
   selectedCount: number;
 }) {
   return (
-    <header className="control-bar">
+    <header aria-label="Run context" className="control-bar">
       <div className="context-summary">
-        <span>Workspace</span>
+        <span>Run context</span>
         <strong>{activeProject?.name ?? "Local workspace"}</strong>
+        <small>Local workspace</small>
       </div>
-      <div className="context-selectors">
+      <div aria-label="Fit inputs" className="context-selectors">
         <label>
-          <span>Dataset</span>
+          <span>Active dataset</span>
           <select value={activeDatasetId} onChange={(event) => onDatasetChange(event.target.value)}>
             {datasets.map((dataset) => (
               <option key={dataset.id} value={dataset.id}>
@@ -491,7 +492,7 @@ function TopControls({
           </select>
         </label>
         <label>
-          <span>Model</span>
+          <span>Model template</span>
           <select value={activeModelId} onChange={(event) => onModelChange(event.target.value)}>
             {models.map((model) => (
               <option key={model.id} value={model.id}>
@@ -501,14 +502,16 @@ function TopControls({
           </select>
         </label>
       </div>
-      <div className="top-actions">
-        <span>{selectedCount} selected</span>
-        <button disabled={!fitReady || busyAction === "run"} onClick={onRun}>
-          Run
-        </button>
-        <button className="primary" disabled={!fitReady || busyAction === "batch"} onClick={onBatch}>
-          Batch fit
-        </button>
+      <div aria-label="Fit actions" className="top-actions">
+        <span className={selectedCount ? "selection-pill active" : "selection-pill"}>{selectedCount} selected</span>
+        <div className="action-buttons">
+          <button disabled={!fitReady || busyAction === "run"} onClick={onRun}>
+            Run
+          </button>
+          <button className="primary" disabled={!fitReady || busyAction === "batch"} onClick={onBatch}>
+            Batch fit
+          </button>
+        </div>
       </div>
     </header>
   );

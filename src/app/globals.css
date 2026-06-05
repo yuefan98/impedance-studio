@@ -341,7 +341,7 @@ button.danger:hover {
 
 .studio-main {
   display: grid;
-  grid-template-rows: 58px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   padding: 14px;
@@ -350,14 +350,14 @@ button.danger:hover {
 
 .control-bar {
   display: grid;
-  grid-template-columns: minmax(150px, 0.7fr) minmax(440px, 1.8fr) auto;
+  grid-template-columns: minmax(210px, 0.8fr) minmax(420px, 1.8fr) minmax(210px, auto);
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.86);
   box-shadow: 0 1px 0 rgba(14, 32, 42, 0.03);
-  padding: 8px 10px;
+  padding: 10px;
 }
 
 .control-bar label,
@@ -368,7 +368,10 @@ button.danger:hover {
 
 .context-summary {
   display: grid;
-  gap: 2px;
+  min-width: 0;
+  gap: 1px;
+  padding-right: 14px;
+  border-right: 1px solid var(--border);
 }
 
 .context-summary span {
@@ -382,6 +385,15 @@ button.danger:hover {
 .context-summary strong {
   overflow: hidden;
   font-size: 15px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-summary small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -389,7 +401,8 @@ button.danger:hover {
 .context-selectors {
   display: grid;
   grid-template-columns: minmax(200px, 1fr) minmax(240px, 1.2fr);
-  gap: 10px;
+  gap: 12px;
+  min-width: 0;
 }
 
 .segmented-control {
@@ -403,11 +416,40 @@ button.danger:hover {
 }
 
 .top-actions {
+  display: grid;
+  justify-items: end;
+  gap: 7px;
+  min-width: 0;
+  padding-left: 14px;
+  border-left: 1px solid var(--border);
+}
+
+.selection-pill {
+  width: max-content;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1;
+  padding: 5px 8px;
+}
+
+.selection-pill.active {
+  border-color: rgba(15, 143, 137, 0.25);
+  background: var(--accent-soft);
+  color: #0d6f6a;
+}
+
+.action-buttons {
   display: flex;
-  align-items: center;
-  align-self: end;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.action-buttons button {
+  white-space: nowrap;
 }
 
 .run-layout,
@@ -946,6 +988,15 @@ td input[type="checkbox"] {
   .button-pair {
     flex-wrap: wrap;
     justify-content: flex-start;
+  }
+
+  .context-summary,
+  .top-actions {
+    justify-items: start;
+    padding-left: 0;
+    padding-right: 0;
+    border-left: 0;
+    border-right: 0;
   }
 }
 
