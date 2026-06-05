@@ -56,6 +56,28 @@ class StudioStore:
         self.connection.commit()
         return {"id": project_id, "name": name, "created_at": now}
 
+    def delete_project(self, project_id: str) -> dict[str, Any]:
+        row = self.connection.execute("select id from projects where id = ?", (project_id,)).fetchone()
+        if not row:
+            raise KeyError(f"project not found: {project_id}")
+        run_ids = [
+            item["id"]
+            for item in self.connection.execute("select id from runs where project_id = ?", (project_id,))
+        ]
+        if run_ids:
+            placeholders = ",".join("?" for _ in run_ids)
+            self.connection.execute(f"delete from run_items where run_id in ({placeholders})", tuple(run_ids))
+            self.connection.execute(f"delete from runs where id in ({placeholders})", tuple(run_ids))
+        self.connection.execute("delete from datasets where project_id = ?", (project_id,))
+        self.connection.execute("delete from models where project_id = ?", (project_id,))
+        self.connection.execute("delete from projects where id = ?", (project_id,))
+        self.connection.commit()
+        if not self.connection.execute("select count(*) from projects").fetchone()[0]:
+            next_project = self.create_project("Untitled Project")
+        else:
+            next_project = self.list_projects()[0]
+        return {"ok": True, "deleted_id": project_id, "next_project": next_project}
+
     def list_datasets(self, project_id: Optional[str] = None) -> list[dict[str, Any]]:
         query = "select * from datasets"
         params: tuple[Any, ...] = ()
@@ -85,6 +107,15 @@ class StudioStore:
                 delimiter=payload.get("delimiter"),
             )
         return self._insert_dataset(project_id, parsed)
+
+    def delete_dataset(self, dataset_id: str) -> dict[str, Any]:
+        row = self.connection.execute("select id from datasets where id = ?", (dataset_id,)).fetchone()
+        if not row:
+            raise KeyError(f"dataset not found: {dataset_id}")
+        self.connection.execute("delete from run_items where dataset_id = ?", (dataset_id,))
+        self.connection.execute("delete from datasets where id = ?", (dataset_id,))
+        self.connection.commit()
+        return {"ok": True, "deleted_id": dataset_id}
 
     def validate_template(self, payload: dict[str, Any]) -> dict[str, Any]:
         return validate_circuit_pair(
@@ -159,6 +190,14 @@ class StudioStore:
         )
         self.connection.commit()
         return model
+
+    def delete_model(self, model_id: str) -> dict[str, Any]:
+        row = self.connection.execute("select id from models where id = ?", (model_id,)).fetchone()
+        if not row:
+            raise KeyError(f"model not found: {model_id}")
+        self.connection.execute("delete from models where id = ?", (model_id,))
+        self.connection.commit()
+        return {"ok": True, "deleted_id": model_id}
 
     def import_model_json(self, payload: dict[str, Any]) -> dict[str, Any]:
         raw = payload.get("model_json")

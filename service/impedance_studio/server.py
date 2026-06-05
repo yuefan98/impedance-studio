@@ -62,6 +62,23 @@ class StudioHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_json({"error": str(exc)}, status=400)
 
+    def do_DELETE(self) -> None:
+        try:
+            path, _query = self._path_query()
+            if path.startswith("/projects/"):
+                project_id = path.split("/")[2]
+                self._send_json(self.store.delete_project(project_id))
+            elif path.startswith("/datasets/"):
+                dataset_id = path.split("/")[2]
+                self._send_json(self.store.delete_dataset(dataset_id))
+            elif path.startswith("/models/"):
+                model_id = path.split("/")[2]
+                self._send_json(self.store.delete_model(model_id))
+            else:
+                self._send_json({"error": f"not found: {path}"}, status=404)
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, status=400)
+
     def log_message(self, format: str, *args: Any) -> None:
         if os.environ.get("IMPEDANCE_STUDIO_VERBOSE"):
             super().log_message(format, *args)
@@ -83,7 +100,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
         self.wfile.write(body)

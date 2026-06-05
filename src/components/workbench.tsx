@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { analysisClient } from "@/lib/analysis-client";
 import type { CircuitValidation, Dataset, DatasetRow, Health, ModelTemplate, Project, Run } from "@/lib/types";
 
@@ -31,6 +31,7 @@ export function Workbench() {
   const [importText, setImportText] = useState(DEFAULT_IMPORT);
   const [validation, setValidation] = useState<CircuitValidation | null>(null);
   const [search, setSearch] = useState("");
+  const [projectName, setProjectName] = useState("New project");
   const [busyAction, setBusyAction] = useState<string | null>(null);
 
   const activeProject = projects.find((project) => project.id === activeProjectId);
@@ -46,13 +47,13 @@ export function Workbench() {
   const filteredModels = filterModels(models, search);
   const fitReady = Boolean(activeProjectId && activeModelId && (activeDatasetId || selectedDatasetIds.length));
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (projectIdOverride?: string) => {
     setStatus("loading");
     setError(null);
     try {
       const healthResult = await analysisClient.health();
       const projectResult = await analysisClient.projects();
-      const nextProjectId = activeProjectId || projectResult.projects[0]?.id || "";
+      const nextProjectId = projectIdOverride || activeProjectId || projectResult.projects[0]?.id || "";
       const [datasetResult, modelResult, runResult] = await Promise.all([
         analysisClient.datasets(nextProjectId),
         analysisClient.models(nextProjectId),
@@ -64,11 +65,17 @@ export function Workbench() {
       setModels(modelResult.models);
       setRuns(runResult.runs);
       setActiveProjectId(nextProjectId);
-      setActiveDatasetId((current) => current || datasetResult.datasets[0]?.id || "");
-      setSelectedDatasetIds((current) =>
-        current.length ? current : datasetResult.datasets.slice(0, 3).map((dataset) => dataset.id),
+      setActiveDatasetId((current) =>
+        datasetResult.datasets.some((dataset) => dataset.id === current) ? current : datasetResult.datasets[0]?.id || "",
       );
-      setActiveModelId((current) => current || modelResult.models[0]?.id || "");
+      setSelectedDatasetIds((current) =>
+        current.filter((id) => datasetResult.datasets.some((dataset) => dataset.id === id)).length
+          ? current.filter((id) => datasetResult.datasets.some((dataset) => dataset.id === id))
+          : datasetResult.datasets.slice(0, 3).map((dataset) => dataset.id),
+      );
+      setActiveModelId((current) =>
+        modelResult.models.some((model) => model.id === current) ? current : modelResult.models[0]?.id || "",
+      );
       if (modelResult.models[0]) {
         setCircuit1((current) => current || modelResult.models[0].circuit_1);
         setCircuit2((current) => current || modelResult.models[0].circuit_2);
@@ -141,6 +148,55 @@ export function Workbench() {
     });
   }
 
+  async function createProject() {
+    const name = projectName.trim();
+    if (!name) return;
+    await runAction("project", async () => {
+      const result = await analysisClient.createProject({ name });
+      setActiveProjectId(result.project.id);
+      setActiveDatasetId("");
+      setSelectedDatasetIds([]);
+      setActiveModelId("");
+      setProjectName("New project");
+      await refresh(result.project.id);
+      setActiveView("database");
+    });
+  }
+
+  async function deleteActiveProject() {
+    if (!activeProjectId || !activeProject) return;
+    if (!window.confirm(`Delete project "${activeProject.name}" and all local data inside it?`)) return;
+    await runAction("project", async () => {
+      const result = await analysisClient.deleteProject(activeProjectId);
+      setActiveProjectId(result.next_project.id);
+      setActiveDatasetId("");
+      setSelectedDatasetIds([]);
+      setActiveModelId("");
+      await refresh(result.next_project.id);
+    });
+  }
+
+  async function deleteActiveDataset() {
+    if (!activeDataset) return;
+    if (!window.confirm(`Delete dataset "${activeDataset.name}" from this project?`)) return;
+    await runAction("dataset", async () => {
+      await analysisClient.deleteDataset(activeDataset.id);
+      setActiveDatasetId("");
+      setSelectedDatasetIds((current) => current.filter((id) => id !== activeDataset.id));
+      await refresh();
+    });
+  }
+
+  async function deleteActiveModel() {
+    if (!activeModel) return;
+    if (!window.confirm(`Delete model "${activeModel.name}" from the library?`)) return;
+    await runAction("model", async () => {
+      await analysisClient.deleteModel(activeModel.id);
+      setActiveModelId("");
+      await refresh();
+    });
+  }
+
   async function loadSnapshotAsInitial(modelId: string) {
     await runAction("load", async () => {
       await analysisClient.loadAsInitial(modelId);
@@ -198,6 +254,13 @@ export function Workbench() {
     setActiveDatasetId(datasetId);
   }
 
+  function switchProject(projectId: string) {
+    setActiveProjectId(projectId);
+    setActiveDatasetId("");
+    setSelectedDatasetIds([]);
+    setActiveModelId("");
+  }
+
   if (status === "error") {
     return (
       <main className="app-shell offline">
@@ -217,7 +280,7 @@ export function Workbench() {
     <main className="studio-shell">
       <aside className="studio-sidebar">
         <div className="sidebar-brand">
-          <div className="brand-mark">IS</div>
+          <img className="app-logo" src="/logo.svg" alt="" />
           <div>
             <strong>Impedance Studio</strong>
             <span>{activeProject?.name ?? "Local workspace"}</span>
@@ -246,12 +309,19 @@ export function Workbench() {
             <button
               className={project.id === activeProjectId ? "sidebar-row active" : "sidebar-row"}
               key={project.id}
-              onClick={() => setActiveProjectId(project.id)}
+              onClick={() => switchProject(project.id)}
             >
               <span>{project.name}</span>
               <small>local</small>
             </button>
           ))}
+          <div className="sidebar-tools">
+            <input value={projectName} onChange={(event) => setProjectName(event.target.value)} />
+            <div className="mini-actions">
+              <button onClick={() => void createProject()}>Add</button>
+              <button className="danger" onClick={() => void deleteActiveProject()}>Delete</button>
+            </div>
+          </div>
         </SidebarGroup>
 
         <SidebarGroup title="Datasets" count={datasets.length}>
@@ -267,6 +337,11 @@ export function Workbench() {
             </button>
           ))}
           {!datasets.length && <p className="empty-state">No datasets yet.</p>}
+          <div className="mini-actions">
+            <button onClick={() => void importSynthetic("EIS")}>Add EIS</button>
+            <button onClick={() => void importSynthetic("2nd-NLEIS")}>Add 2nd</button>
+            <button className="danger" onClick={() => void deleteActiveDataset()}>Delete</button>
+          </div>
         </SidebarGroup>
 
         <SidebarGroup title="Model library" count={models.length}>
@@ -284,6 +359,13 @@ export function Workbench() {
             </button>
           ))}
           {!models.length && <p className="empty-state">No saved models yet.</p>}
+          <div className="mini-actions">
+            <button onClick={() => {
+              setActiveView("models");
+              void saveTemplate();
+            }}>Add</button>
+            <button className="danger" onClick={() => void deleteActiveModel()}>Delete</button>
+          </div>
         </SidebarGroup>
       </aside>
 
@@ -297,8 +379,6 @@ export function Workbench() {
           fitReady={fitReady}
           models={models}
           onDatasetChange={setActiveDatasetId}
-          onImportSecond={() => void importSynthetic("2nd-NLEIS")}
-          onImportEis={() => void importSynthetic("EIS")}
           onModelChange={setActiveModelId}
           onRun={() => void runJointFit(false)}
           onBatch={() => void runJointFit(true)}
@@ -332,6 +412,7 @@ export function Workbench() {
             selectedDatasetIds={selectedDatasetIds}
             setImportText={setImportText}
             toggleDataset={toggleDataset}
+            onDeleteDataset={deleteActiveDataset}
             onImportEis={() => void importTable("EIS")}
             onImportSecond={() => void importTable("2nd-NLEIS")}
           />
@@ -355,6 +436,7 @@ export function Workbench() {
             onInitialGuessChange={setInitialGuess}
             onLoadSnapshot={loadSnapshotAsInitial}
             onModelSelect={setActiveModelId}
+            onDelete={deleteActiveModel}
             onSave={saveTemplate}
             onValidate={validateCircuit}
           />
@@ -374,8 +456,6 @@ function TopControls({
   models,
   onBatch,
   onDatasetChange,
-  onImportEis,
-  onImportSecond,
   onModelChange,
   onRun,
   selectedCount,
@@ -389,41 +469,37 @@ function TopControls({
   models: ModelTemplate[];
   onBatch: () => void;
   onDatasetChange: (id: string) => void;
-  onImportEis: () => void;
-  onImportSecond: () => void;
   onModelChange: (id: string) => void;
   onRun: () => void;
   selectedCount: number;
 }) {
   return (
     <header className="control-bar">
-      <label>
-        <span>Project</span>
-        <input value={activeProject?.name ?? "Local workspace"} readOnly />
-      </label>
-      <label>
-        <span>Dataset</span>
-        <select value={activeDatasetId} onChange={(event) => onDatasetChange(event.target.value)}>
-          {datasets.map((dataset) => (
-            <option key={dataset.id} value={dataset.id}>
-              {dataset.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        <span>Model</span>
-        <select value={activeModelId} onChange={(event) => onModelChange(event.target.value)}>
-          {models.map((model) => (
-            <option key={model.id} value={model.id}>
-              {model.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="segmented-control" aria-label="Import shortcuts">
-        <button onClick={onImportEis}>EIS sample</button>
-        <button onClick={onImportSecond}>2nd sample</button>
+      <div className="context-summary">
+        <span>Workspace</span>
+        <strong>{activeProject?.name ?? "Local workspace"}</strong>
+      </div>
+      <div className="context-selectors">
+        <label>
+          <span>Dataset</span>
+          <select value={activeDatasetId} onChange={(event) => onDatasetChange(event.target.value)}>
+            {datasets.map((dataset) => (
+              <option key={dataset.id} value={dataset.id}>
+                {dataset.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Model</span>
+          <select value={activeModelId} onChange={(event) => onModelChange(event.target.value)}>
+            {models.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
       <div className="top-actions">
         <span>{selectedCount} selected</span>
@@ -561,6 +637,7 @@ function DatabaseView({
   selectedDatasetIds,
   setImportText,
   toggleDataset,
+  onDeleteDataset,
   onImportEis,
   onImportSecond,
 }: {
@@ -573,6 +650,7 @@ function DatabaseView({
   selectedDatasetIds: string[];
   setImportText: (value: string) => void;
   toggleDataset: (id: string) => void;
+  onDeleteDataset: () => Promise<void>;
   onImportEis: () => void;
   onImportSecond: () => void;
 }) {
@@ -581,12 +659,10 @@ function DatabaseView({
       <section className="database-hero">
         <div>
           <span>Private database</span>
-          <h1>Datasets, model templates, and fitted snapshots</h1>
+          <h1>{activeDataset ? activeDataset.name : "Datasets, model templates, and fitted snapshots"}</h1>
         </div>
         <div className="hero-actions">
-          <button onClick={onImportEis}>Import EIS</button>
-          <button onClick={onImportSecond}>Import 2nd-NLEIS</button>
-          <button className="primary">Save view</button>
+          <button className="danger" disabled={!activeDataset} onClick={() => void onDeleteDataset()}>Delete dataset</button>
         </div>
       </section>
 
@@ -626,7 +702,7 @@ function DatabaseView({
       </section>
 
       <section className="panel import-panel">
-        <PanelHeader title="Import" meta="CSV / TSV / Autolab style" />
+        <PanelHeader title="Add data" meta="CSV / TSV / Autolab style" />
         <textarea value={importText} onChange={(event) => setImportText(event.target.value)} spellCheck={false} />
         <div className="button-pair">
           <button onClick={onImportEis}>Import as EIS</button>
@@ -672,6 +748,7 @@ function ModelsView({
   onInitialGuessChange,
   onLoadSnapshot,
   onModelSelect,
+  onDelete,
   onSave,
   onValidate,
 }: {
@@ -691,6 +768,7 @@ function ModelsView({
   onInitialGuessChange: (value: string) => void;
   onLoadSnapshot: (id: string) => Promise<void>;
   onModelSelect: (id: string) => void;
+  onDelete: () => Promise<void>;
   onSave: () => Promise<void>;
   onValidate: () => Promise<void>;
 }) {
@@ -703,6 +781,7 @@ function ModelsView({
         </div>
         <div className="hero-actions">
           <button disabled={busyAction === "validate"} onClick={() => void onValidate()}>Validate</button>
+          <button className="danger" disabled={!activeModel || busyAction === "model"} onClick={() => void onDelete()}>Delete</button>
           <button className="primary" disabled={busyAction === "save"} onClick={() => void onSave()}>Save as new</button>
         </div>
       </section>
@@ -787,7 +866,7 @@ function ModelsView({
   );
 }
 
-function SidebarGroup({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
+function SidebarGroup({ title, count, children }: { title: string; count: number; children: ReactNode }) {
   return (
     <section className="sidebar-group">
       <div className="sidebar-group-title">

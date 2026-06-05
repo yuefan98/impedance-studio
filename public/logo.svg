@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Impedance Studio logo">
+  <rect width="64" height="64" rx="14" fill="#08282e"/>
+  <path d="M16 39h8l5-20 7 30 5-17h7" fill="none" stroke="#d8fffa" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="24" cy="39" r="4" fill="#0f8f89"/>
+  <circle cx="41" cy="32" r="4" fill="#7dd3c7"/>
+  <path d="M18 16c7-6 21-6 28 0" fill="none" stroke="#7dd3c7" stroke-width="4" stroke-linecap="round"/>
+</svg>

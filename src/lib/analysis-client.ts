@@ -21,10 +21,27 @@ export const analysisClient = {
   apiBase: API_BASE,
   health: () => request<{ ok: true } & Health>("/health"),
   projects: () => request<{ projects: Project[] }>("/projects"),
+  createProject: (body: { name: string }) =>
+    request<{ project: Project }>("/projects", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  deleteProject: (projectId: string) =>
+    request<{ ok: true; deleted_id: string; next_project: Project }>(`/projects/${projectId}`, {
+      method: "DELETE",
+    }),
   datasets: (projectId?: string) =>
     request<{ datasets: Dataset[] }>(projectId ? `/datasets?project_id=${projectId}` : "/datasets"),
+  deleteDataset: (datasetId: string) =>
+    request<{ ok: true; deleted_id: string }>(`/datasets/${datasetId}`, {
+      method: "DELETE",
+    }),
   models: (projectId?: string) =>
     request<{ models: ModelTemplate[] }>(projectId ? `/models?project_id=${projectId}` : "/models"),
+  deleteModel: (modelId: string) =>
+    request<{ ok: true; deleted_id: string }>(`/models/${modelId}`, {
+      method: "DELETE",
+    }),
   runs: (projectId?: string) => request<{ runs: Run[] }>(projectId ? `/runs?project_id=${projectId}` : "/runs"),
   validateCircuit: (body: {
     circuit_1: string;

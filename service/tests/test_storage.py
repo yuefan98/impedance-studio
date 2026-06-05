@@ -77,6 +77,41 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(len(run["snapshots"]), 2)
         self.assertEqual(self.store.list_runs(project["id"])[0]["status"], "completed")
 
+    def test_delete_dataset_removes_it_from_project(self):
+        project = self.store.list_projects()[0]
+        dataset = self.store.list_datasets(project["id"])[0]
+
+        result = self.store.delete_dataset(dataset["id"])
+
+        self.assertTrue(result["ok"])
+        self.assertNotIn(dataset["id"], [item["id"] for item in self.store.list_datasets(project["id"])])
+
+    def test_delete_model_removes_template_or_snapshot(self):
+        project = self.store.list_projects()[0]
+        model = self.store.list_models(project["id"])[0]
+
+        result = self.store.delete_model(model["id"])
+
+        self.assertTrue(result["ok"])
+        self.assertNotIn(model["id"], [item["id"] for item in self.store.list_models(project["id"])])
+
+    def test_delete_project_cascades_local_records_and_keeps_a_project(self):
+        project = self.store.list_projects()[0]
+        self.store.run_joint_fit(
+            {
+                "project_id": project["id"],
+                "model_id": self.store.list_models(project["id"])[0]["id"],
+                "dataset_ids": [self.store.list_datasets(project["id"])[0]["id"]],
+            }
+        )
+
+        result = self.store.delete_project(project["id"])
+        project_ids = [item["id"] for item in self.store.list_projects()]
+
+        self.assertTrue(result["ok"])
+        self.assertNotIn(project["id"], project_ids)
+        self.assertGreaterEqual(len(project_ids), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
