@@ -10,6 +10,7 @@ The project is intentionally hybrid:
 This repository now contains the first MVP scaffold:
 
 - A Next.js workbench UI.
+- A hosted/demo Next.js API fallback for remote Vercel testing.
 - A local Python analysis service with SQLite persistence.
 - A Supabase schema draft for hosted persistence.
 - No-cloud local mode for sensitive data workflows.
@@ -63,19 +64,27 @@ Install the web dependencies:
 npm install
 ```
 
-Start the local analysis service:
-
-```bash
-npm run service
-```
-
-In another terminal, start the web app:
+Start the web app:
 
 ```bash
 npm run dev
 ```
 
 Open the app at `http://localhost:3000`.
+
+By default, the web app talks to the built-in `/api` demo adapter. This is the same path used by the Vercel deployment and is intended for UI testing with bundled public sample data.
+
+For private local analysis with SQLite persistence, start the local Python service:
+
+```bash
+npm run service
+```
+
+Then point the web app at it:
+
+```bash
+NEXT_PUBLIC_ANALYSIS_API_URL=http://127.0.0.1:8765 npm run dev
+```
 
 By default, local state is stored in:
 

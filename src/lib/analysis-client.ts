@@ -1,6 +1,6 @@
 import type { CircuitValidation, Dataset, Health, ModelTemplate, Project, Run } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_ANALYSIS_API_URL ?? "http://127.0.0.1:8765";
+const API_BASE = process.env.NEXT_PUBLIC_ANALYSIS_API_URL ?? "/api";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
