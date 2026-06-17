@@ -104,5 +104,14 @@ export type Health = {
   ok: boolean;
   mode: string;
   database: string;
+  supabase?: {
+    configured: boolean;
+    url: string | null;
+    publishableKeyConfigured: boolean;
+    buckets: {
+      rawData: string;
+      analysisArtifacts: string;
+    };
+  };
   optional_libraries: Record<string, boolean>;
 };

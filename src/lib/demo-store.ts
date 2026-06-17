@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { getSupabaseConfigStatus } from "./supabase-config";
 import type { CircuitValidation, Dataset, DatasetRow, ModelTemplate, Project, Run } from "./types";
 
 type ImportPayload = {
@@ -42,6 +43,7 @@ class DemoStore {
       ok: true,
       mode: "hosted-demo",
       database: "ephemeral Vercel demo store",
+      supabase: getSupabaseConfigStatus(),
       optional_libraries: { impedance: false, nleis: false },
     };
   }

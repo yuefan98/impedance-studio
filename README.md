@@ -12,7 +12,7 @@ This repository now contains the first MVP scaffold:
 - A Next.js workbench UI.
 - A hosted/demo Next.js API fallback for remote Vercel testing.
 - A local Python analysis service with SQLite persistence.
-- A Supabase schema draft for hosted persistence.
+- A Supabase schema for hosted database and storage.
 - No-cloud local mode for sensitive data workflows.
 - Bundled sample data from the public `2nd-NLEIS-manuscripts` Part II dataset for UI and batch-fit validation.
 
@@ -93,6 +93,30 @@ By default, local state is stored in:
 ```
 
 Use `IMPEDANCE_STUDIO_DB=/path/to/private.sqlite3 npm run service` to isolate a sensitive project.
+
+## Hosted Supabase Setup
+
+Hosted mode uses a Supabase project for authenticated database persistence and private object storage. The schema is tracked in:
+
+```text
+supabase/schema.sql
+```
+
+The hosted project should expose only publishable browser configuration:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_publishable_key
+```
+
+The schema creates:
+
+- `projects`, `datasets`, `models`, `runs`, and `run_items` tables.
+- Row Level Security policies scoped to the authenticated user and project ownership.
+- Private `impedance-raw-data` and `impedance-analysis-artifacts` storage buckets.
+- Storage policies that use the project ID as the first object-path folder.
+
+Never place a Supabase service-role key in browser code or checked-in files. The current Vercel build reads Supabase env vars lazily and reports whether they are configured from `/api/health`; authenticated Supabase persistence is the next adapter step after hosted auth is added.
 
 ## Sample Data
 
