@@ -74,3 +74,4 @@ results/
 notebooks/.ipynb_checkpoints/
 scratch/
 tmp/
+.vercel
