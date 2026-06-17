@@ -1,8 +1,11 @@
 import { chromium } from "playwright-core";
+import { mkdir } from "node:fs/promises";
 
 const chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const baseUrl = process.env.QA_BASE_URL ?? "http://127.0.0.1:3000";
 const outputDir = process.env.QA_OUTPUT_DIR ?? "tmp";
+
+await mkdir(outputDir, { recursive: true });
 
 const browser = await chromium.launch({
   headless: true,
@@ -19,12 +22,22 @@ try {
   await page.goto(baseUrl, { waitUntil: "networkidle" });
   await page.screenshot({ path: `${outputDir}/qa-desktop.png`, fullPage: true });
 
-  await page.getByText("Validate DSL").click();
-  await page.getByText("Run Fit").click();
+  await page.getByRole("button", { name: "Models" }).click();
+  await page.getByRole("button", { name: "Validate" }).click();
+  await page.getByRole("button", { name: "Save as new template" }).click();
   await page.waitForTimeout(700);
-  await page.getByText("Batch Fit").click();
+
+  await page.getByRole("button", { name: "Data" }).click();
+  await page.getByRole("button", { name: "Import as EIS" }).click();
   await page.waitForTimeout(700);
-  await page.getByText("Save Model").first().click();
+
+  await page.getByRole("button", { name: "Runs" }).click();
+  await page.getByRole("button", { name: "Run selected fit" }).click();
+  await page.waitForTimeout(700);
+  await page.getByRole("button", { name: "Run batch joint fit" }).click();
+  await page.waitForTimeout(700);
+  await page.getByRole("slider", { name: /Inspect data point/ }).first().focus();
+  await page.keyboard.press("ArrowRight");
   await page.waitForTimeout(700);
   await page.screenshot({ path: `${outputDir}/qa-after-workflow.png`, fullPage: true });
 
