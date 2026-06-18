@@ -13,8 +13,8 @@ import { RunHistory } from "./workbench/run-history";
 import { RunResults } from "./workbench/run-results";
 import { useWorkbenchState } from "./workbench/use-workbench-state";
 import { WorkspaceSidebar } from "./workbench/workspace-sidebar";
-import type { BusyAction } from "./workbench/types";
-import { filterDatasets, filterModels, inferSharedParameters } from "./workbench/utils";
+import type { BusyAction, ModelDraftUpdate } from "./workbench/types";
+import { filterDatasets, filterModels, getParameterNames, inferSharedParameters, syncInitialGuessText } from "./workbench/utils";
 
 export function Workbench() {
   const { dispatch, guessEntries, guessValues, state } = useWorkbenchState();
@@ -204,11 +204,28 @@ export function Workbench() {
     });
   }
 
+  function updateModelDraft(update: ModelDraftUpdate) {
+    if ("circuit1" in update || "circuit2" in update) {
+      const circuit1 = update.circuit1 ?? state.modelDraft.circuit1;
+      const circuit2 = update.circuit2 ?? state.modelDraft.circuit2;
+      dispatch({
+        type: "updateModelDraft",
+        update: {
+          ...update,
+          initialGuess: syncInitialGuessText(circuit1, circuit2, state.modelDraft.initialGuess),
+        },
+      });
+      return;
+    }
+    dispatch({ type: "updateModelDraft", update });
+  }
+
   async function validateCircuit() {
     await runAction("validate", async () => {
-      const guessIssue = getInitialGuessIssue(guessEntries);
+      const parameterNames = getParameterNames(state.modelDraft.circuit1, state.modelDraft.circuit2);
+      const guessIssue = getInitialGuessIssue(guessEntries, parameterNames.length);
       if (guessIssue) {
-        dispatch({ type: "setValidation", validation: invalidCircuitValidation(guessIssue, guessValues) });
+        dispatch({ type: "setValidation", validation: invalidCircuitValidation(guessIssue, parameterNames) });
         return;
       }
       const result = await analysisClient.validateCircuit({
@@ -223,9 +240,10 @@ export function Workbench() {
 
   async function saveTemplate() {
     await runAction("save", async () => {
-      const guessIssue = getInitialGuessIssue(guessEntries);
+      const parameterNames = getParameterNames(state.modelDraft.circuit1, state.modelDraft.circuit2);
+      const guessIssue = getInitialGuessIssue(guessEntries, parameterNames.length);
       if (guessIssue) {
-        dispatch({ type: "setValidation", validation: invalidCircuitValidation(guessIssue, guessValues) });
+        dispatch({ type: "setValidation", validation: invalidCircuitValidation(guessIssue, parameterNames) });
         throw new Error(guessIssue);
       }
       const result = await analysisClient.saveModel({
@@ -404,7 +422,7 @@ export function Workbench() {
               guessValues={guessValues}
               validation={state.validation}
               onDelete={confirmDeleteActiveModel}
-              onDraftChange={(update) => dispatch({ type: "updateModelDraft", update })}
+              onDraftChange={updateModelDraft}
               onDuplicateSnapshot={() => activeModel && void loadSnapshotAsInitial(activeModel.id)}
               onGuessItemChange={updateInitialGuess}
               onResetDraft={() => dispatch({ type: "resetModelDraft", model: activeModel })}
@@ -428,24 +446,27 @@ export function Workbench() {
   );
 }
 
-function getInitialGuessIssue(entries: string[]) {
+function getInitialGuessIssue(entries: string[], expectedCount: number) {
   const normalized = entries.map((entry) => entry.trim());
   const filled = normalized.filter(Boolean);
   if (!filled.length) return "At least one numeric initial guess is required.";
   if (normalized.some((entry) => !entry) && filled.length) return "Initial guesses contain an empty entry. Remove extra commas or fill the value.";
   const invalid = normalized.filter((entry) => entry && !Number.isFinite(Number(entry)));
   if (invalid.length) return `Initial guesses must be finite numbers. Check: ${invalid.slice(0, 4).join(", ")}.`;
+  if (expectedCount > 0 && normalized.length !== expectedCount) {
+    return `Initial guess count must match the circuit parameter count (${expectedCount}).`;
+  }
   return null;
 }
 
-function invalidCircuitValidation(message: string, guessValues: number[]): CircuitValidation {
+function invalidCircuitValidation(message: string, parameterNames: string[]): CircuitValidation {
   return {
     valid: false,
     errors: [message],
     warnings: [],
     elements_1: [],
     elements_2: [],
-    estimated_parameters: guessValues.length,
-    parameter_names: guessValues.map((_, index) => `p${index}`),
+    estimated_parameters: parameterNames.length,
+    parameter_names: parameterNames,
   };
 }

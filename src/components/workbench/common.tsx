@@ -49,7 +49,7 @@ export function StatusBadge({ children, tone = "neutral" }: { children: ReactNod
 
 export function ParameterSummary({ model }: { model?: ModelTemplate }) {
   const values = model?.initial_guess ?? [];
-  const names = getParameterNames(model?.circuit_1, model?.circuit_2, values);
+  const names = getParameterNames(model?.circuit_1, model?.circuit_2);
   return (
     <div className="parameter-summary">
       <span>Initial guesses</span>

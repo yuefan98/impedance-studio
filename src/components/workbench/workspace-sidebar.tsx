@@ -54,47 +54,49 @@ export function WorkspaceSidebar({
         <button className={activeView === "models" ? "active" : ""} onClick={() => onViewChange("models")}>Models</button>
       </nav>
 
-      <SidebarGroup title="Fit selection" count={includedDatasetIds.length}>
-        {datasets.filter((dataset) => includedDatasetIds.includes(dataset.id)).slice(0, 6).map((dataset) => (
-          <button
-            className={dataset.id === activeDatasetId ? "sidebar-run-row active" : "sidebar-run-row"}
-            key={dataset.id}
-            onClick={() => onDatasetPreview(dataset.id)}
-          >
-            <span>{dataset.name}</span>
-            <small>{dataset.kind}</small>
-          </button>
-        ))}
-        {!includedDatasetIds.length && <p className="empty-state">No datasets included in the next fit.</p>}
-      </SidebarGroup>
+      <div className="sidebar-scroll">
+        <SidebarGroup title="Fit selection" count={includedDatasetIds.length}>
+          {datasets.filter((dataset) => includedDatasetIds.includes(dataset.id)).map((dataset) => (
+            <button
+              className={dataset.id === activeDatasetId ? "sidebar-run-row active" : "sidebar-run-row"}
+              key={dataset.id}
+              onClick={() => onDatasetPreview(dataset.id)}
+            >
+              <span>{dataset.name}</span>
+              <small>{dataset.kind}</small>
+            </button>
+          ))}
+          {!includedDatasetIds.length && <p className="empty-state">No datasets included in the next fit.</p>}
+        </SidebarGroup>
 
-      <SidebarGroup title="Recent runs" count={runs.length}>
-        {runs.slice(0, 5).map((run) => (
-          <button
-            className={run.id === activeRunId ? "sidebar-run-row active" : "sidebar-run-row"}
-            key={run.id}
-            onClick={() => onRunSelect(run.id, run.items[0]?.id)}
-          >
-            <span>{String(run.summary?.run_name ?? run.mode)}</span>
-            <small>{run.status} / {run.items.length} datasets</small>
-          </button>
-        ))}
-        {!runs.length && <p className="empty-state">No fitting runs yet.</p>}
-      </SidebarGroup>
+        <SidebarGroup title="Recent runs" count={runs.length}>
+          {runs.map((run) => (
+            <button
+              className={run.id === activeRunId ? "sidebar-run-row active" : "sidebar-run-row"}
+              key={run.id}
+              onClick={() => onRunSelect(run.id, run.items[0]?.id)}
+            >
+              <span>{String(run.summary?.run_name ?? run.mode)}</span>
+              <small>{run.status} / {run.items.length} datasets</small>
+            </button>
+          ))}
+          {!runs.length && <p className="empty-state">No fitting runs yet.</p>}
+        </SidebarGroup>
 
-      <SidebarGroup title="Models" count={models.length}>
-        {models.slice(0, 5).map((model) => (
-          <button
-            className={model.id === activeModelId ? "sidebar-run-row active" : "sidebar-run-row"}
-            key={model.id}
-            onClick={() => onModelSelect(model)}
-          >
-            <span>{model.name}</span>
-            <small>{model.kind}</small>
-          </button>
-        ))}
-        {!models.length && <p className="empty-state">No saved models yet.</p>}
-      </SidebarGroup>
+        <SidebarGroup title="Models" count={models.length}>
+          {models.map((model) => (
+            <button
+              className={model.id === activeModelId ? "sidebar-run-row active" : "sidebar-run-row"}
+              key={model.id}
+              onClick={() => onModelSelect(model)}
+            >
+              <span>{model.name}</span>
+              <small>{model.kind}</small>
+            </button>
+          ))}
+          {!models.length && <p className="empty-state">No saved models yet.</p>}
+        </SidebarGroup>
+      </div>
 
       <div className="sidebar-footer">
         <StatusBadge tone="neutral">Local-first ready</StatusBadge>

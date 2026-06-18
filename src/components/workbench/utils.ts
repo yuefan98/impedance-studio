@@ -15,12 +15,18 @@ export function parseGuessValues(initialGuess: string) {
     .filter((value) => Number.isFinite(value));
 }
 
-export function getParameterNames(circuit1 = "", circuit2 = "", values: number[]) {
+export function getParameterNames(circuit1 = "", circuit2 = "") {
   const pair = `${circuit1.trim()}/${circuit2.trim()}`;
   if (pair === "RC0/RCn0") {
     return ["RC0_0 / RCn0_0", "RC0_1 / RCn0_1", "RCn0_2"];
   }
-  return values.map((_, index) => `p${index}`);
+  return parameterNamesForElements([...extractCircuitElements(circuit1), ...extractCircuitElements(circuit2)]);
+}
+
+export function syncInitialGuessText(circuit1: string, circuit2: string, initialGuess: string) {
+  const names = getParameterNames(circuit1, circuit2);
+  const entries = parseGuessEntries(initialGuess);
+  return names.map((_, index) => entries[index] || "1").join(", ");
 }
 
 export function inferSharedParameters(circuit1: string, circuit2: string) {
@@ -28,6 +34,61 @@ export function inferSharedParameters(circuit1: string, circuit2: string) {
     return ["RC0_0 -> RCn0_0", "RC0_1 -> RCn0_1"];
   }
   return [`${circuit1}_0 -> ${circuit2}_0`];
+}
+
+const CIRCUIT_PREFIXES = [
+  "CPE",
+  "TDSn",
+  "TDPn",
+  "TLMQ",
+  "TDS",
+  "TDP",
+  "Wo",
+  "Ws",
+  "La",
+  "RCn",
+  "RC",
+  "R",
+  "C",
+  "L",
+  "W",
+  "T",
+  "G",
+  "K",
+];
+
+function extractCircuitElements(circuit: string) {
+  return circuit
+    .replace(/\s/g, "")
+    .match(/[A-Za-z]+_?\d*/g)
+    ?.filter((token) => !["p", "d", "s"].includes(token)) ?? [];
+}
+
+function parameterNamesForElements(elements: string[]) {
+  const seen = new Set<string>();
+  return elements.flatMap((element) => {
+    const count = parameterCount(element);
+    return Array.from({ length: count }, (_, index) => {
+      const name = count === 1 ? element : `${element}_${index}`;
+      if (seen.has(name)) return "";
+      seen.add(name);
+      return name;
+    }).filter(Boolean);
+  });
+}
+
+function parameterCount(element: string) {
+  const prefix = elementPrefix(element);
+  if (["CPE", "Wo", "Ws", "La", "RC", "RCn"].includes(prefix ?? "")) return 2;
+  if (["TDS", "TDP"].includes(prefix ?? "")) return 5;
+  if (["TDSn", "TDPn"].includes(prefix ?? "")) return 7;
+  if (prefix === "TLMQ") return 4;
+  return 1;
+}
+
+function elementPrefix(element: string) {
+  const clean = element.replace(/_/g, "");
+  return CIRCUIT_PREFIXES.find((prefix) => clean.startsWith(prefix));
 }
 
 export function filterDatasets(datasets: Dataset[], search: string) {

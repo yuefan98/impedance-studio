@@ -32,7 +32,8 @@ export function ModelEditor({
   onSave: () => void;
   onValidate: () => void;
 }) {
-  const names = getParameterNames(draft.circuit1, draft.circuit2, guessValues);
+  const names = getParameterNames(draft.circuit1, draft.circuit2);
+  const parameterValues = names.map((_, index) => guessEntries[index] ?? "");
   const canDuplicateSnapshot = activeModel?.kind === "snapshot";
   const hasValidationWarnings = Boolean(validation?.warnings.length);
   const validationClass = validation?.valid ? (hasValidationWarnings ? "validation warning" : "validation valid") : "validation invalid";
@@ -46,7 +47,7 @@ export function ModelEditor({
     <section className="panel model-editor-panel">
       <PanelHeader
         title="Circuit editor"
-        meta={`${guessValues.length} initial guesses`}
+        meta={`${names.length || guessValues.length} initial guesses`}
         actions={<StatusBadge tone={draft.dirty ? "warn" : "good"}>{draft.dirty ? "Unsaved draft" : "Saved source"}</StatusBadge>}
       />
       <div className="editor-toolbar">
@@ -78,7 +79,7 @@ export function ModelEditor({
         <span>Initial guesses</span>
         <textarea value={draft.initialGuess} onChange={(event) => onDraftChange({ initialGuess: event.target.value })} spellCheck={false} />
       </label>
-      <ParameterEditor names={names} values={guessEntries} onChange={onGuessItemChange} />
+      <ParameterEditor names={names} values={parameterValues} onChange={onGuessItemChange} />
       {validation && (
         <div className={validationClass}>
           <strong>{validationLabel}</strong>
@@ -119,13 +120,13 @@ function ParameterEditor({
         </tr>
       </thead>
       <tbody>
-        {values.map((value, index) => (
+        {names.map((name, index) => (
           <tr key={`${index}-${names[index]}`}>
-            <td>{names[index] ?? `p${index}`}</td>
+            <td>{name}</td>
             <td>
               <input
-                aria-label={`Initial guess for ${names[index] ?? `p${index}`}`}
-                value={value}
+                aria-label={`Initial guess for ${name}`}
+                value={values[index] ?? ""}
                 onChange={(event) => onChange(index, event.target.value)}
               />
             </td>

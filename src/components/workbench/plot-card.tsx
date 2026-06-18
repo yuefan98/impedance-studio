@@ -21,9 +21,9 @@ export function PlotCard({
   invertY?: boolean;
   logX?: boolean;
 }) {
-  const width = 760;
-  const height = 420;
-  const padding = { top: 34, right: 26, bottom: 58, left: 72 };
+  const width = 500;
+  const height = 500;
+  const padding = { top: 24, right: 20, bottom: 56, left: 64 };
   const equalAspect = xKey !== "frequency" && !logX;
   const availablePlotWidth = width - padding.left - padding.right;
   const availablePlotHeight = height - padding.top - padding.bottom;
@@ -101,8 +101,31 @@ export function PlotCard({
         <strong>{title}</strong>
         <span>{series.length > 1 ? `${series.length} datasets` : "data + fit"}</span>
       </div>
+      <ul className="plot-legend" aria-label="Plot legend">
+        {series.map((item) => (
+          <li className="legend-item" key={item.id}>
+            <i aria-hidden="true" style={{ background: item.color }} />
+            <span className="legend-copy">
+              <strong title={item.name}>{item.name}</strong>
+              <small>{item.kind} measured / {item.rows.length} points</small>
+            </span>
+          </li>
+        ))}
+        {fitPoints.length > 0 && (
+          <li className="legend-item">
+            <i aria-hidden="true" className="fit-swatch" />
+            <span className="legend-copy">
+              <strong>Fitted response</strong>
+              <small>{fitPoints.length} points</small>
+            </span>
+          </li>
+        )}
+      </ul>
       <svg
+        height={height}
+        preserveAspectRatio="xMidYMin meet"
         viewBox={`0 0 ${width} ${height}`}
+        width={width}
         role="img"
         aria-label={`${title} plot`}
         aria-describedby={`${plotId}-inspector`}
@@ -118,7 +141,7 @@ export function PlotCard({
             <g key={`x-${tick}`}>
               <line className="grid" x1={x} x2={x} y1={plotArea.y} y2={plotArea.y + plotArea.height} />
               <line className="tick" x1={x} x2={x} y1={plotArea.y + plotArea.height} y2={plotArea.y + plotArea.height + 5} />
-              <text className="axis-text" textAnchor="middle" x={x} y={plotArea.y + plotArea.height + 20}>
+              <text className="axis-text" textAnchor="middle" x={x} y={plotArea.y + plotArea.height + 18}>
                 {logX ? formatAxisValue(10 ** tick, xKey) : formatNumber(tick)}
               </text>
             </g>
@@ -138,13 +161,13 @@ export function PlotCard({
         })}
         <line className="axis-line" x1={plotArea.x} y1={plotArea.y + plotArea.height} x2={plotArea.x + plotArea.width} y2={plotArea.y + plotArea.height} />
         <line className="axis-line" x1={plotArea.x} y1={plotArea.y} x2={plotArea.x} y2={plotArea.y + plotArea.height} />
-        <text className="axis-label" textAnchor="middle" x={plotArea.x + plotArea.width / 2} y={height - 14}>
+        <text className="axis-label" textAnchor="middle" x={plotArea.x + plotArea.width / 2} y={plotArea.y + plotArea.height + 28}>
           {xLabel}
         </text>
         <text
           className="axis-label"
           textAnchor="middle"
-          transform={`translate(18 ${plotArea.y + plotArea.height / 2}) rotate(-90)`}
+          transform={`translate(${plotArea.x - 42} ${plotArea.y + plotArea.height / 2}) rotate(-90)`}
         >
           {yLabel}
         </text>
@@ -166,26 +189,6 @@ export function PlotCard({
         )}
       </svg>
       <div className="plot-footer">
-        <ul className="plot-legend" aria-label="Plot legend">
-          {series.map((item) => (
-            <li className="legend-item" key={item.id}>
-              <i aria-hidden="true" style={{ background: item.color }} />
-              <span className="legend-copy">
-                <strong title={item.name}>{item.name}</strong>
-                <small>{item.kind} measured / {item.rows.length} points</small>
-              </span>
-            </li>
-          ))}
-          {fitPoints.length > 0 && (
-            <li className="legend-item">
-              <i aria-hidden="true" className="fit-swatch" />
-              <span className="legend-copy">
-                <strong>Fitted response</strong>
-                <small>{fitPoints.length} points</small>
-              </span>
-            </li>
-          )}
-        </ul>
         <output className="plot-tooltip" id={`${plotId}-inspector`}>
           {inspectedPoint
             ? `${inspectedPoint.series}: ${xLabel} ${formatAxisValue(inspectedPoint.xValue, xKey)}, ${yLabel} ${formatNumber(inspectedPoint.yValue)}`
