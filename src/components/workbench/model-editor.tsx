@@ -34,6 +34,13 @@ export function ModelEditor({
 }) {
   const names = getParameterNames(draft.circuit1, draft.circuit2, guessValues);
   const canDuplicateSnapshot = activeModel?.kind === "snapshot";
+  const hasValidationWarnings = Boolean(validation?.warnings.length);
+  const validationClass = validation?.valid ? (hasValidationWarnings ? "validation warning" : "validation valid") : "validation invalid";
+  const validationLabel = validation?.valid
+    ? hasValidationWarnings
+      ? "Circuit pair has warnings"
+      : "Circuit pair valid"
+    : "Circuit pair needs attention";
 
   return (
     <section className="panel model-editor-panel">
@@ -73,11 +80,14 @@ export function ModelEditor({
       </label>
       <ParameterEditor names={names} values={guessEntries} onChange={onGuessItemChange} />
       {validation && (
-        <div className={validation.valid ? "validation valid" : "validation invalid"}>
-          <strong>{validation.valid ? "Circuit pair valid" : "Circuit pair needs attention"}</strong>
+        <div className={validationClass}>
+          <strong>{validationLabel}</strong>
           <span>{validation.estimated_parameters} estimated parameters</span>
-          {[...validation.errors, ...validation.warnings].map((message) => (
-            <small key={message}>{message}</small>
+          {validation.errors.map((message) => (
+            <small key={`error-${message}`}>Error: {message}</small>
+          ))}
+          {validation.warnings.map((message) => (
+            <small key={`warning-${message}`}>Warning: {message}</small>
           ))}
         </div>
       )}

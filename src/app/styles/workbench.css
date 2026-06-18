@@ -75,8 +75,7 @@
 .field-readout span,
 .fit-picker label span,
 .models-layout label span,
-.editor-grid label span,
-.plot-inspector-control span {
+.editor-grid label span {
   color: var(--muted);
   font-size: 10px;
   font-weight: 800;
@@ -355,6 +354,12 @@
   padding-bottom: 12px;
 }
 
+.config-panel {
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
 .config-panel > *:not(.panel-header),
 .inspector-panel > *:not(.panel-header),
 .import-panel > *:not(.panel-header),
@@ -489,6 +494,11 @@
   cursor: crosshair;
 }
 
+.plot-card svg:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
 .plot-frame {
   fill: #fbfdff;
   stroke: var(--border);
@@ -553,25 +563,42 @@
 }
 
 .plot-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
+  gap: 8px;
   min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.plot-legend span,
+.plot-legend small,
 .plot-tooltip {
   color: var(--muted);
   font-size: 11px;
   line-height: 1.25;
 }
 
-.plot-legend span {
-  display: inline-flex;
-  align-items: center;
-  max-width: 190px;
+.legend-item {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: start;
   gap: 5px;
+  min-width: 0;
+}
+
+.legend-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.legend-copy strong {
   overflow: hidden;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -581,15 +608,11 @@
   height: 10px;
   flex: 0 0 auto;
   border-radius: 999px;
+  margin-top: 2px;
 }
 
 .plot-legend .fit-swatch {
   background: #d9572a;
-}
-
-.plot-inspector-control {
-  display: grid;
-  gap: 4px;
 }
 
 .plot-tooltip {
@@ -846,6 +869,12 @@
   border: 1px solid #b8ead4;
   background: #f0fbf6;
   color: #166534;
+}
+
+.validation.warning {
+  border: 1px solid rgba(154, 100, 20, 0.24);
+  background: var(--warning-soft);
+  color: var(--warning);
 }
 
 .validation.invalid {

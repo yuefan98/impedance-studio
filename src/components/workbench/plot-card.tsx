@@ -1,4 +1,4 @@
-import { useMemo, useState, type MouseEvent } from "react";
+import { useMemo, useState, type KeyboardEvent, type MouseEvent } from "react";
 import type { Dataset, DatasetRow } from "@/lib/types";
 import { formatAxisValue, formatNumber } from "./utils";
 
@@ -24,11 +24,15 @@ export function PlotCard({
   const width = 760;
   const height = 420;
   const padding = { top: 34, right: 26, bottom: 58, left: 72 };
+  const equalAspect = xKey !== "frequency" && !logX;
+  const availablePlotWidth = width - padding.left - padding.right;
+  const availablePlotHeight = height - padding.top - padding.bottom;
+  const squarePlotSize = Math.min(availablePlotWidth, availablePlotHeight);
   const plotArea = {
-    x: padding.left,
+    x: equalAspect ? padding.left + (availablePlotWidth - squarePlotSize) / 2 : padding.left,
     y: padding.top,
-    width: width - padding.left - padding.right,
-    height: height - padding.top - padding.bottom,
+    width: equalAspect ? squarePlotSize : availablePlotWidth,
+    height: equalAspect ? squarePlotSize : availablePlotHeight,
   };
   const [hoveredPoint, setHoveredPoint] = useState<PlottedPoint | null>(null);
   const [focusedIndex, setFocusedIndex] = useState(0);
@@ -42,7 +46,7 @@ export function PlotCard({
       }))
     : [{ id: "active", name: "Active dataset", kind: "EIS", rows, color: PLOT_COLORS[0] }];
   const scaleRows = [...rawSeries.flatMap((series) => series.rows), ...(fitRows ?? [])];
-  const domain = getPlotDomain(scaleRows, xKey, yKey, Boolean(logX));
+  const domain = getPlotDomain(scaleRows, xKey, yKey, Boolean(logX), equalAspect);
   const series = rawSeries.map((item) => ({
     ...item,
     points: toPoints(item.rows, xKey, yKey, plotArea, domain, Boolean(invertY), Boolean(logX), item.name, item.color),
@@ -65,6 +69,7 @@ export function PlotCard({
   const yTicks = createTicks(domain.minY, domain.maxY, 5);
   const xLabel = xKey === "frequency" ? "Frequency" : "Z' / Ohm";
   const yLabel = yKey === "z_abs" ? "|Z| / Ohm" : "Z'' / Ohm";
+  const plotId = useMemo(() => `plot-${title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`, [title]);
 
   function handlePointerMove(event: MouseEvent<SVGSVGElement>) {
     if (!allPoints.length) return;
@@ -78,6 +83,18 @@ export function PlotCard({
     setHoveredPoint(nearest.distance < 42 ? nearest.point : null);
   }
 
+  function handlePlotKeyDown(event: KeyboardEvent<SVGSVGElement>) {
+    if (!allPoints.length) return;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
+      setFocusedIndex((index) => Math.min(index + 1, allPoints.length - 1));
+    }
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setFocusedIndex((index) => Math.max(index - 1, 0));
+    }
+  }
+
   return (
     <article className="plot-card">
       <div className="plot-card-title">
@@ -88,8 +105,11 @@ export function PlotCard({
         viewBox={`0 0 ${width} ${height}`}
         role="img"
         aria-label={`${title} plot`}
+        aria-describedby={`${plotId}-inspector`}
         onMouseLeave={() => setHoveredPoint(null)}
         onMouseMove={handlePointerMove}
+        onKeyDown={handlePlotKeyDown}
+        tabIndex={0}
       >
         <rect className="plot-frame" x={plotArea.x} y={plotArea.y} width={plotArea.width} height={plotArea.height} />
         {xTicks.map((tick) => {
@@ -146,35 +166,27 @@ export function PlotCard({
         )}
       </svg>
       <div className="plot-footer">
-        <div className="plot-legend">
-          {series.slice(0, 4).map((item) => (
-            <span key={item.id}>
-              <i style={{ background: item.color }} />
-              {item.name}
-            </span>
+        <ul className="plot-legend" aria-label="Plot legend">
+          {series.map((item) => (
+            <li className="legend-item" key={item.id}>
+              <i aria-hidden="true" style={{ background: item.color }} />
+              <span className="legend-copy">
+                <strong title={item.name}>{item.name}</strong>
+                <small>{item.kind} measured / {item.rows.length} points</small>
+              </span>
+            </li>
           ))}
-          {series.length > 4 && <span>+{series.length - 4} more</span>}
           {fitPoints.length > 0 && (
-            <span>
-              <i className="fit-swatch" />
-              fit
-            </span>
+            <li className="legend-item">
+              <i aria-hidden="true" className="fit-swatch" />
+              <span className="legend-copy">
+                <strong>Fitted response</strong>
+                <small>{fitPoints.length} points</small>
+              </span>
+            </li>
           )}
-        </div>
-        {allPoints.length > 1 && (
-          <label className="plot-inspector-control">
-            <span>Keyboard inspect</span>
-            <input
-              aria-label={`Inspect data point for ${title}`}
-              max={allPoints.length - 1}
-              min={0}
-              type="range"
-              value={safeFocusedIndex}
-              onChange={(event) => setFocusedIndex(Number(event.target.value))}
-            />
-          </label>
-        )}
-        <output className="plot-tooltip">
+        </ul>
+        <output className="plot-tooltip" id={`${plotId}-inspector`}>
           {inspectedPoint
             ? `${inspectedPoint.series}: ${xLabel} ${formatAxisValue(inspectedPoint.xValue, xKey)}, ${yLabel} ${formatNumber(inspectedPoint.yValue)}`
             : "No plot data available"}
@@ -209,16 +221,23 @@ type PlottedPoint = {
 
 const PLOT_COLORS = ["#0f8f89", "#d9572a", "#4d70b8", "#8a5fbf", "#557c38", "#b44f82"];
 
-function getPlotDomain(rows: DatasetRow[], xKey: keyof DatasetRow, yKey: keyof DatasetRow, logX: boolean): PlotDomain {
+function getPlotDomain(
+  rows: DatasetRow[],
+  xKey: keyof DatasetRow,
+  yKey: keyof DatasetRow,
+  logX: boolean,
+  equalAspect: boolean,
+): PlotDomain {
   const usableRows = rows.length ? rows : [{ frequency: 1, z_real: 0, z_imag: 0, z_abs: 0, phase: 0 }];
   const xs = usableRows.map((row) => transformX(Number(row[xKey]), logX));
   const ys = usableRows.map((row) => Number(row[yKey]));
-  return padDomain({
+  const domain = {
     minX: Math.min(...xs),
     maxX: Math.max(...xs),
     minY: Math.min(...ys),
     maxY: Math.max(...ys),
-  });
+  };
+  return equalAspect ? padEqualAspectDomain(domain) : padDomain(domain);
 }
 
 function padDomain(domain: PlotDomain): PlotDomain {
@@ -229,6 +248,20 @@ function padDomain(domain: PlotDomain): PlotDomain {
     maxX: domain.maxX + xSpan * 0.05,
     minY: domain.minY - ySpan * 0.08,
     maxY: domain.maxY + ySpan * 0.08,
+  };
+}
+
+function padEqualAspectDomain(domain: PlotDomain): PlotDomain {
+  const xSpan = Math.max(domain.maxX - domain.minX, 1e-9);
+  const ySpan = Math.max(domain.maxY - domain.minY, 1e-9);
+  const span = Math.max(xSpan, ySpan) * 1.12;
+  const xCenter = (domain.minX + domain.maxX) / 2;
+  const yCenter = (domain.minY + domain.maxY) / 2;
+  return {
+    minX: xCenter - span / 2,
+    maxX: xCenter + span / 2,
+    minY: yCenter - span / 2,
+    maxY: yCenter + span / 2,
   };
 }
 

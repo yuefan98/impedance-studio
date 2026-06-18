@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { analysisClient } from "@/lib/analysis-client";
-import type { Dataset, Health, ModelTemplate, Project, Run } from "@/lib/types";
+import type { CircuitValidation, Dataset, Health, ModelTemplate, Project, Run } from "@/lib/types";
 import { ConfirmDialog, type ConfirmRequest } from "./workbench/common";
 import { DatasetLibrary } from "./workbench/dataset-library";
 import { FitSetup } from "./workbench/fit-setup";
@@ -206,6 +206,11 @@ export function Workbench() {
 
   async function validateCircuit() {
     await runAction("validate", async () => {
+      const guessIssue = getInitialGuessIssue(guessEntries);
+      if (guessIssue) {
+        dispatch({ type: "setValidation", validation: invalidCircuitValidation(guessIssue, guessValues) });
+        return;
+      }
       const result = await analysisClient.validateCircuit({
         circuit_1: state.modelDraft.circuit1,
         circuit_2: state.modelDraft.circuit2,
@@ -218,6 +223,11 @@ export function Workbench() {
 
   async function saveTemplate() {
     await runAction("save", async () => {
+      const guessIssue = getInitialGuessIssue(guessEntries);
+      if (guessIssue) {
+        dispatch({ type: "setValidation", validation: invalidCircuitValidation(guessIssue, guessValues) });
+        throw new Error(guessIssue);
+      }
       const result = await analysisClient.saveModel({
         project_id: state.activeProjectId,
         name: state.modelDraft.name.trim() || `${state.modelDraft.circuit1} / ${state.modelDraft.circuit2} template`,
@@ -416,4 +426,26 @@ export function Workbench() {
       <ConfirmDialog request={confirmRequest} onCancel={() => setConfirmRequest(null)} />
     </main>
   );
+}
+
+function getInitialGuessIssue(entries: string[]) {
+  const normalized = entries.map((entry) => entry.trim());
+  const filled = normalized.filter(Boolean);
+  if (!filled.length) return "At least one numeric initial guess is required.";
+  if (normalized.some((entry) => !entry) && filled.length) return "Initial guesses contain an empty entry. Remove extra commas or fill the value.";
+  const invalid = normalized.filter((entry) => entry && !Number.isFinite(Number(entry)));
+  if (invalid.length) return `Initial guesses must be finite numbers. Check: ${invalid.slice(0, 4).join(", ")}.`;
+  return null;
+}
+
+function invalidCircuitValidation(message: string, guessValues: number[]): CircuitValidation {
+  return {
+    valid: false,
+    errors: [message],
+    warnings: [],
+    elements_1: [],
+    elements_2: [],
+    estimated_parameters: guessValues.length,
+    parameter_names: guessValues.map((_, index) => `p${index}`),
+  };
 }
