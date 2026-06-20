@@ -26,6 +26,15 @@ export type Dataset = {
   created_at: string;
 };
 
+export type JointPreprocessing = {
+  max_f: number;
+  method: string;
+  inductance_points_removed: number;
+  second_points_removed: number;
+  eis: Dataset;
+  second: Dataset;
+};
+
 export type ModelTemplate = {
   id: string;
   project_id: string | null;

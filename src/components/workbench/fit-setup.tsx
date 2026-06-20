@@ -7,12 +7,14 @@ export function FitSetup({
   datasets,
   eisDatasetId,
   includedDatasetIds,
+  maxFrequency,
   models,
   runName,
   secondDatasetId,
   onBatch,
   onEisDatasetChange,
   onIncludeDataset,
+  onMaxFrequencyChange,
   onModelChange,
   onRun,
   onRunNameChange,
@@ -23,12 +25,14 @@ export function FitSetup({
   datasets: Dataset[];
   eisDatasetId: string;
   includedDatasetIds: string[];
+  maxFrequency: number;
   models: ModelTemplate[];
   runName: string;
   secondDatasetId: string;
   onBatch: () => void;
   onEisDatasetChange: (id: string) => void;
   onIncludeDataset: (id: string) => void;
+  onMaxFrequencyChange: (frequency: number) => void;
   onModelChange: (id: string) => void;
   onRun: () => void;
   onRunNameChange: (name: string) => void;
@@ -46,6 +50,23 @@ export function FitSetup({
       <label className="field-readout">
         <span>Run name</span>
         <input value={runName} onChange={(event) => onRunNameChange(event.target.value)} />
+      </label>
+      <label className="field-readout">
+        <span>2nd-NLEIS max f (Hz)</span>
+        <input
+          aria-describedby="second-nleis-truncation-note"
+          min="0"
+          onChange={(event) => {
+            const value = Number.parseFloat(event.target.value);
+            if (Number.isFinite(value)) onMaxFrequencyChange(value);
+          }}
+          step="any"
+          type="number"
+          value={maxFrequency}
+        />
+        <small id="second-nleis-truncation-note" className="field-note">
+          Applies nleis.py truncation: inductive EIS rows are removed and 2nd-NLEIS retains f &lt; max f.
+        </small>
       </label>
       <label className="field-readout">
         <span>Model template</span>

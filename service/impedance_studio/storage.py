@@ -10,6 +10,7 @@ from typing import Any, Optional, Union
 
 from .circuits import validate_circuit_pair
 from .importers import generate_synthetic_dataset, parse_autolab_import, parse_table_import
+from .preprocessing import DEFAULT_MAX_F, preprocess_joint_datasets
 from .sample_data import load_manuscript_samples, manuscript_sample
 
 
@@ -129,6 +130,15 @@ class StudioStore:
             payload.get("circuit_2", ""),
             [float(value) for value in payload.get("initial_guess", [])],
             {key: float(value) for key, value in payload.get("constants", {}).items()},
+        )
+
+    def preprocess_joint_data(self, payload: dict[str, Any]) -> dict[str, Any]:
+        project_id = payload.get("project_id") or self._default_project_id()
+        eis_dataset, second_dataset = self._joint_datasets(payload, project_id)
+        return preprocess_joint_datasets(
+            eis_dataset,
+            second_dataset,
+            max_f=payload.get("max_f", DEFAULT_MAX_F),
         )
 
     def list_models(self, project_id: Optional[str] = None) -> list[dict[str, Any]]:
@@ -258,8 +268,15 @@ class StudioStore:
     def run_joint_fit(self, payload: dict[str, Any], *, batch: bool = False) -> dict[str, Any]:
         project_id = payload.get("project_id") or self._default_project_id()
         model_id = payload.get("model_id") or self._default_model_id(project_id)
-        dataset_ids = payload.get("dataset_ids") or [self._default_dataset_id(project_id)]
         model = self._get_model(model_id)
+        eis_dataset, second_dataset = self._joint_datasets(payload, project_id)
+        preprocessing = preprocess_joint_datasets(
+            eis_dataset,
+            second_dataset,
+            max_f=payload.get("max_f", DEFAULT_MAX_F),
+        )
+        fitted_datasets = [preprocessing["eis"], preprocessing["second"]]
+        fit_scale = _impedance_scale([row for dataset in fitted_datasets for row in dataset["rows"]])
         run_id = _id()
         started = _now()
         self.connection.execute(
@@ -278,31 +295,37 @@ class StudioStore:
                 _now(),
                 _json(
                     {
-                        "dataset_count": len(dataset_ids),
+                        "dataset_count": len(fitted_datasets),
                         "fit_mode": "joint",
                         "run_name": payload.get("run_name") or "Joint fit",
+                        "max_f": preprocessing["max_f"],
+                        "preprocessing_method": preprocessing["method"],
                     }
                 ),
             ),
         )
         items = []
         snapshots = []
-        for dataset_id in dataset_ids:
-            dataset = self._get_dataset(dataset_id)
-            result = _fit_result(dataset, model)
+        for dataset in fitted_datasets:
+            result = _fit_result(
+                dataset,
+                model,
+                scale=fit_scale,
+                preprocessing_method=preprocessing["method"],
+            )
             item_id = _id()
             self.connection.execute(
                 """
                 insert into run_items (id, run_id, dataset_id, status, progress, message, result_json)
                 values (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (item_id, run_id, dataset_id, "completed", 100, "Joint fit completed", _json(result)),
+                (item_id, run_id, dataset["id"], "completed", 100, "Joint fit completed", _json(result)),
             )
             items.append(
                 {
                     "id": item_id,
                     "run_id": run_id,
-                    "dataset_id": dataset_id,
+                    "dataset_id": dataset["id"],
                     "status": "completed",
                     "progress": 100,
                     "message": "Joint fit completed",
@@ -489,6 +512,27 @@ class StudioStore:
             ).fetchone()[0]
         )
 
+    def _joint_datasets(self, payload: dict[str, Any], project_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        requested_ids = payload.get("dataset_ids") or []
+        requested = [self._get_dataset(dataset_id) for dataset_id in requested_ids]
+        datasets = self.list_datasets(project_id)
+
+        eis_id = payload.get("eis_dataset_id")
+        second_id = payload.get("second_dataset_id")
+        eis_dataset = self._get_dataset(eis_id) if eis_id else next(
+            (dataset for dataset in requested if dataset["kind"] == "EIS"),
+            next((dataset for dataset in datasets if dataset["kind"] == "EIS"), None),
+        )
+        second_dataset = self._get_dataset(second_id) if second_id else next(
+            (dataset for dataset in requested if dataset["kind"] == "2nd-NLEIS"),
+            next((dataset for dataset in datasets if dataset["kind"] == "2nd-NLEIS"), None),
+        )
+        if not eis_dataset or not second_dataset:
+            raise ValueError("Joint preprocessing requires one EIS and one 2nd-NLEIS dataset.")
+        if eis_dataset["project_id"] != project_id or second_dataset["project_id"] != project_id:
+            raise ValueError("Selected datasets must belong to the active project.")
+        return eis_dataset, second_dataset
+
     def _get_dataset(self, dataset_id: str) -> dict[str, Any]:
         row = self.connection.execute("select * from datasets where id = ?", (dataset_id,)).fetchone()
         if not row:
@@ -541,9 +585,15 @@ def _decode_model(row: sqlite3.Row) -> dict[str, Any]:
     return data
 
 
-def _fit_result(dataset: dict[str, Any], model: dict[str, Any]) -> dict[str, Any]:
+def _fit_result(
+    dataset: dict[str, Any],
+    model: dict[str, Any],
+    *,
+    scale: Optional[float] = None,
+    preprocessing_method: str = "",
+) -> dict[str, Any]:
     rows = dataset["rows"]
-    scale = max(sum(abs(row["z_real"]) + abs(row["z_imag"]) for row in rows) / len(rows), 1e-9)
+    scale = scale if scale is not None else _impedance_scale(rows)
     base = model.get("initial_guess") or [scale, scale / 2]
     parameters = [round(float(value) * (0.98 + 0.01 * idx), 8) for idx, value in enumerate(base)]
     fitted_rows = []
@@ -560,7 +610,7 @@ def _fit_result(dataset: dict[str, Any], model: dict[str, Any]) -> dict[str, Any
         )
     return {
         "fit_mode": "joint",
-        "adapter": "simulated-local-worker",
+        "adapter": f"simulated-local-worker; {preprocessing_method}".rstrip("; "),
         "circuit_1": model["circuit_1"],
         "circuit_2": model["circuit_2"],
         "parameters": parameters,
@@ -569,10 +619,14 @@ def _fit_result(dataset: dict[str, Any], model: dict[str, Any]) -> dict[str, Any
             "method": "MM",
             "chi_square": round(0.0008 + scale * 1e-5, 8),
             "status": "pass",
-            "message": "Converged in local worker simulation; nleis adapter boundary is ready.",
+            "message": "Fitted from nleis.py-preprocessed rows in the local worker simulation.",
         },
         "plot_series": {"data": rows, "fit": fitted_rows},
     }
+
+
+def _impedance_scale(rows: list[dict[str, Any]]) -> float:
+    return max(sum(abs(row["z_real"]) + abs(row["z_imag"]) for row in rows) / len(rows), 1e-9)
 
 
 def _id() -> str:

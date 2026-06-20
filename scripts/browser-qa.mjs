@@ -22,6 +22,14 @@ try {
   await page.goto(baseUrl, { waitUntil: "networkidle" });
   await page.screenshot({ path: `${outputDir}/qa-desktop.png`, fullPage: true });
 
+  await page.getByLabel("2nd-NLEIS max f (Hz)").fill("1");
+  await page.getByText("nleis.py preprocessing / max f 1.00 Hz", { exact: true }).waitFor();
+  const secondLegendText = await page.getByRole("list", { name: "Plot legend" }).nth(1).innerText();
+  const secondPointMatch = secondLegendText.match(/(\d+) points/);
+  if (!secondPointMatch || Number(secondPointMatch[1]) >= 66) {
+    throw new Error(`Expected max_f preprocessing to reduce the 2nd-NLEIS points, got: ${secondLegendText}`);
+  }
+
   await page.getByRole("button", { name: "Models", exact: true }).click();
   await page.getByRole("button", { name: "Validate" }).click();
   await page.waitForTimeout(700);
@@ -33,6 +41,10 @@ try {
   await page.getByRole("button", { name: "Runs", exact: true }).click();
   await page.getByRole("button", { name: "Run selected fit" }).click();
   await page.waitForTimeout(700);
+  const preprocessingInspector = await page.locator(".inspector-panel").innerText();
+  if (!preprocessingInspector.includes("2nd-NLEIS max f") || !preprocessingInspector.includes("1.00 Hz")) {
+    throw new Error(`Expected the run inspector to report the applied max_f, got: ${preprocessingInspector}`);
+  }
   await page.getByRole("button", { name: "Run batch joint fit" }).click();
   await page.waitForTimeout(700);
   const sliderCount = await page.locator('input[type="range"]').count();

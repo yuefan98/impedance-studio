@@ -1,4 +1,4 @@
-import type { CircuitValidation, Dataset, Health, ModelTemplate, Project, Run } from "./types";
+import type { CircuitValidation, Dataset, Health, JointPreprocessing, ModelTemplate, Project, Run } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_ANALYSIS_API_URL ?? "/api";
 
@@ -77,12 +77,33 @@ export const analysisClient = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  runJointFit: (body: { project_id: string; model_id: string; dataset_ids: string[]; run_name?: string }) =>
+  preprocessJointData: (body: { project_id: string; eis_dataset_id: string; second_dataset_id: string; max_f: number }) =>
+    request<{ preprocessing: JointPreprocessing }>("/preprocess/joint", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  runJointFit: (body: {
+    project_id: string;
+    model_id: string;
+    dataset_ids: string[];
+    eis_dataset_id: string;
+    second_dataset_id: string;
+    max_f: number;
+    run_name?: string;
+  }) =>
     request<{ run: Run }>("/runs/joint-fit", {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  runBatchJointFit: (body: { project_id: string; model_id: string; dataset_ids: string[]; run_name?: string }) =>
+  runBatchJointFit: (body: {
+    project_id: string;
+    model_id: string;
+    dataset_ids: string[];
+    eis_dataset_id: string;
+    second_dataset_id: string;
+    max_f: number;
+    run_name?: string;
+  }) =>
     request<{ run: Run }>("/runs/batch-joint-fit", {
       method: "POST",
       body: JSON.stringify(body),

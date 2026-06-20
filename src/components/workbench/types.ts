@@ -36,6 +36,7 @@ export type WorkbenchState = {
   activeView: WorkbenchView;
   search: string;
   runName: string;
+  maxFrequency: number;
   importText: string;
   modelDraft: ModelDraft;
   validation: CircuitValidation | null;

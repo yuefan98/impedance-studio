@@ -16,6 +16,7 @@ type Action =
   | { type: "setView"; view: WorkbenchView }
   | { type: "setSearch"; search: string }
   | { type: "setRunName"; runName: string }
+  | { type: "setMaxFrequency"; maxFrequency: number }
   | { type: "setImportText"; importText: string }
   | { type: "selectProject"; projectId: string }
   | { type: "selectDataset"; datasetId: string }
@@ -42,6 +43,7 @@ const initialState: WorkbenchState = {
   activeView: "runs",
   search: "",
   runName: "Joint RC0 / RCn0 fit",
+  maxFrequency: 10,
   importText: DEFAULT_IMPORT,
   modelDraft: modelToDraft(),
   validation: null,
@@ -64,6 +66,8 @@ function reducer(state: WorkbenchState, action: Action): WorkbenchState {
       return { ...state, search: action.search };
     case "setRunName":
       return { ...state, runName: action.runName };
+    case "setMaxFrequency":
+      return { ...state, maxFrequency: action.maxFrequency };
     case "setImportText":
       return { ...state, importText: action.importText };
     case "selectProject":

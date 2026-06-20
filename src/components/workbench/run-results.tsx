@@ -1,5 +1,5 @@
-import type { Dataset, ModelTemplate, Run } from "@/lib/types";
-import { ARTIFACT_KINDS, downloadRunArtifact, formatNumber } from "./utils";
+import type { Dataset, JointPreprocessing, ModelTemplate, Run } from "@/lib/types";
+import { ARTIFACT_KINDS, downloadRunArtifact, formatFrequency, formatNumber } from "./utils";
 import { MetricCard, PanelHeader, ParameterTable, StatusBadge } from "./common";
 import { PlotCard } from "./plot-card";
 
@@ -10,7 +10,7 @@ export function RunResults({
   activeRunItem,
   datasets,
   eisDatasetId,
-  includedDatasets,
+  preprocessing,
   secondDatasetId,
   onRunItemSelect,
 }: {
@@ -20,7 +20,7 @@ export function RunResults({
   activeRunItem?: Run["items"][number];
   datasets: Dataset[];
   eisDatasetId: string;
-  includedDatasets: Dataset[];
+  preprocessing: JointPreprocessing | null;
   secondDatasetId: string;
   onRunItemSelect: (itemId: string) => void;
 }) {
@@ -28,10 +28,12 @@ export function RunResults({
   const activeRunDataset = datasets.find((dataset) => dataset.id === activeRunItem?.dataset_id);
   const eisDataset = datasets.find((dataset) => dataset.id === eisDatasetId);
   const secondDataset = datasets.find((dataset) => dataset.id === secondDatasetId);
-  const selectedEisDatasets = includedDatasets.filter((dataset) => dataset.kind === "EIS");
-  const selectedSecondDatasets = includedDatasets.filter((dataset) => dataset.kind === "2nd-NLEIS");
-  const fitRows = activeRunDataset?.kind === "EIS" ? activeResult?.plot_series.fit : undefined;
-  const secondFitRows = activeRunDataset?.kind === "2nd-NLEIS" ? activeResult?.plot_series.fit : undefined;
+  const activeEisResult = activeRun?.items.find((item) => item.dataset_id === eisDatasetId)?.result;
+  const activeSecondResult = activeRun?.items.find((item) => item.dataset_id === secondDatasetId)?.result;
+  const displayedEis = preprocessing?.eis ?? resultDataset(eisDataset, activeEisResult?.plot_series.data);
+  const displayedSecond = preprocessing?.second ?? resultDataset(secondDataset, activeSecondResult?.plot_series.data);
+  const fitRows = activeEisResult?.plot_series.fit;
+  const secondFitRows = activeSecondResult?.plot_series.fit;
   const metricCards = [
     { label: "Final chi-square", value: activeResult ? formatNumber(activeResult.validation.chi_square) : "-" },
     { label: "Run datasets", value: activeRun ? String(activeRun.items.length) : "0" },
@@ -41,12 +43,15 @@ export function RunResults({
   return (
     <>
       <section className="panel results-panel">
-        <PanelHeader title="Results" meta={activeRun?.id ?? "waiting for run"} />
+        <PanelHeader
+          title="Results"
+          meta={preprocessing ? `nleis.py preprocessing / max f ${formatFrequency(preprocessing.max_f)}` : activeRun?.id ?? "preprocessing data"}
+        />
         <div className="plot-canvas plot-stack">
           <PlotCard
             title="EIS Nyquist: Z'' versus Z'"
-            rows={eisDataset?.rows ?? []}
-            comparisonDatasets={selectedEisDatasets.length ? selectedEisDatasets : eisDataset ? [eisDataset] : []}
+            rows={displayedEis?.rows ?? []}
+            comparisonDatasets={displayedEis ? [displayedEis] : []}
             fitRows={fitRows}
             xKey="z_real"
             yKey="z_imag"
@@ -54,8 +59,8 @@ export function RunResults({
           />
           <PlotCard
             title="2nd-NLEIS Nyquist: Z2'' versus Z2'"
-            rows={secondDataset?.rows ?? []}
-            comparisonDatasets={selectedSecondDatasets.length ? selectedSecondDatasets : secondDataset ? [secondDataset] : []}
+            rows={displayedSecond?.rows ?? []}
+            comparisonDatasets={displayedSecond ? [displayedSecond] : []}
             fitRows={secondFitRows}
             xKey="z_real"
             yKey="z_imag"
@@ -82,6 +87,8 @@ export function RunResults({
           <dd>{activeRunDataset?.name ?? activeDataset?.name ?? "-"}</dd>
           <dt>Adapter</dt>
           <dd>{activeResult?.adapter ?? "-"}</dd>
+          <dt>2nd-NLEIS max f</dt>
+          <dd>{preprocessing ? formatFrequency(preprocessing.max_f) : "-"}</dd>
           <dt>Status</dt>
           <dd>{activeRun ? <StatusBadge tone={activeRun.status === "completed" ? "good" : "neutral"}>{activeRun.status}</StatusBadge> : "not run"}</dd>
         </dl>
@@ -117,4 +124,8 @@ export function RunResults({
       </section>
     </>
   );
+}
+
+function resultDataset(dataset: Dataset | undefined, rows: Dataset["rows"] | undefined) {
+  return dataset && rows ? { ...dataset, rows, point_count: rows.length } : dataset;
 }

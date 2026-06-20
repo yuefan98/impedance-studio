@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { analysisClient } from "@/lib/analysis-client";
-import type { CircuitValidation, Dataset, Health, ModelTemplate, Project, Run } from "@/lib/types";
+import type { CircuitValidation, Dataset, Health, JointPreprocessing, ModelTemplate, Project, Run } from "@/lib/types";
 import { ConfirmDialog, type ConfirmRequest } from "./workbench/common";
 import { DatasetLibrary } from "./workbench/dataset-library";
 import { FitSetup } from "./workbench/fit-setup";
@@ -29,6 +29,8 @@ export function Workbench() {
   const [newProjectName, setNewProjectName] = useState("New project");
   const [busyAction, setBusyAction] = useState<BusyAction | null>(null);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
+  const [preprocessing, setPreprocessing] = useState<JointPreprocessing | null>(null);
+  const [preprocessingError, setPreprocessingError] = useState<string | null>(null);
 
   const activeProject = projects.find((project) => project.id === state.activeProjectId);
   const activeDataset = datasets.find((dataset) => dataset.id === state.activeDatasetId) ?? datasets[0];
@@ -38,7 +40,6 @@ export function Workbench() {
     activeRun?.items.find((item) => item.id === state.activeRunItemId) ??
     activeRun?.items.find((item) => item.dataset_id === activeDataset?.id) ??
     activeRun?.items[0];
-  const includedDatasets = datasets.filter((dataset) => state.includedDatasetIds.includes(dataset.id));
   const templates = models.filter((model) => model.kind !== "snapshot");
   const snapshots = models.filter((model) => model.kind === "snapshot");
   const filteredDatasets = useMemo(() => filterDatasets(datasets, state.search), [datasets, state.search]);
@@ -81,6 +82,35 @@ export function Workbench() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!state.activeProjectId || !state.eisDatasetId || !state.secondDatasetId || state.maxFrequency <= 0) {
+      setPreprocessing(null);
+      setPreprocessingError(state.maxFrequency <= 0 ? "2nd-NLEIS max f must be greater than zero." : null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    setPreprocessing(null);
+    setPreprocessingError(null);
+    void analysisClient
+      .preprocessJointData({
+        project_id: state.activeProjectId,
+        eis_dataset_id: state.eisDatasetId,
+        second_dataset_id: state.secondDatasetId,
+        max_f: state.maxFrequency,
+      })
+      .then((result) => {
+        if (!cancelled) setPreprocessing(result.preprocessing);
+      })
+      .catch((caught) => {
+        if (!cancelled) setPreprocessingError(caught instanceof Error ? caught.message : "Unable to preprocess the selected joint dataset.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [state.activeProjectId, state.eisDatasetId, state.maxFrequency, state.secondDatasetId]);
 
   async function runAction(label: BusyAction, action: () => Promise<void>) {
     setBusyAction(label);
@@ -280,14 +310,28 @@ export function Workbench() {
   }
 
   async function runJointFit(batch: boolean) {
-    const ids = state.includedDatasetIds.length
-      ? state.includedDatasetIds
-      : [state.activeDatasetId || state.eisDatasetId || state.secondDatasetId].filter(Boolean);
-    if (!state.activeProjectId || !state.activeModelId || ids.length === 0) return;
+    const ids = [state.eisDatasetId, state.secondDatasetId].filter(Boolean);
+    if (!state.activeProjectId || !state.activeModelId || ids.length !== 2 || state.maxFrequency <= 0) return;
     await runAction(batch ? "batch" : "run", async () => {
       const result = batch
-        ? await analysisClient.runBatchJointFit({ project_id: state.activeProjectId, model_id: state.activeModelId, dataset_ids: ids, run_name: state.runName })
-        : await analysisClient.runJointFit({ project_id: state.activeProjectId, model_id: state.activeModelId, dataset_ids: ids, run_name: state.runName });
+        ? await analysisClient.runBatchJointFit({
+            project_id: state.activeProjectId,
+            model_id: state.activeModelId,
+            dataset_ids: ids,
+            eis_dataset_id: state.eisDatasetId,
+            second_dataset_id: state.secondDatasetId,
+            max_f: state.maxFrequency,
+            run_name: state.runName,
+          })
+        : await analysisClient.runJointFit({
+            project_id: state.activeProjectId,
+            model_id: state.activeModelId,
+            dataset_ids: ids,
+            eis_dataset_id: state.eisDatasetId,
+            second_dataset_id: state.secondDatasetId,
+            max_f: state.maxFrequency,
+            run_name: state.runName,
+          });
       await refresh();
       dispatch({ type: "selectRun", runId: result.run.id, itemId: result.run.items[0]?.id });
       dispatch({ type: "setView", view: "runs" });
@@ -345,7 +389,7 @@ export function Workbench() {
           onProjectSelect={(projectId) => void switchProject(projectId)}
         />
 
-        {inlineError && <div className="app-error" role="alert">{inlineError}</div>}
+        {(inlineError || preprocessingError) && <div className="app-error" role="alert">{inlineError ?? preprocessingError}</div>}
 
         {state.activeView === "runs" && (
           <div className="run-layout">
@@ -355,12 +399,14 @@ export function Workbench() {
               datasets={datasets}
               eisDatasetId={state.eisDatasetId}
               includedDatasetIds={state.includedDatasetIds}
+              maxFrequency={state.maxFrequency}
               models={models}
               runName={state.runName}
               secondDatasetId={state.secondDatasetId}
               onBatch={() => void runJointFit(true)}
               onEisDatasetChange={(datasetId) => dispatch({ type: "selectEisDataset", datasetId })}
               onIncludeDataset={(datasetId) => dispatch({ type: "toggleIncludedDataset", datasetId })}
+              onMaxFrequencyChange={(maxFrequency) => dispatch({ type: "setMaxFrequency", maxFrequency })}
               onModelChange={(modelId) => {
                 const model = models.find((candidate) => candidate.id === modelId);
                 if (model) selectModel(model);
@@ -376,7 +422,7 @@ export function Workbench() {
               activeRunItem={activeRunItem}
               datasets={datasets}
               eisDatasetId={state.eisDatasetId}
-              includedDatasets={includedDatasets}
+              preprocessing={preprocessing}
               secondDatasetId={state.secondDatasetId}
               onRunItemSelect={(itemId) => dispatch({ type: "selectRunItem", itemId })}
             />

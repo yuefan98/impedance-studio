@@ -42,6 +42,7 @@ async function handleRequest(method: "GET" | "POST" | "DELETE", request: Request
       if (path === "/projects") return json({ project: store.createProject(body.name || "Untitled Project") });
       if (path === "/imports") return json({ dataset: store.importDataset(body) });
       if (path === "/circuit-templates/validate") return json({ validation: store.validateTemplate(body) });
+      if (path === "/preprocess/joint") return json({ preprocessing: store.preprocessJointData(body) });
       if (path === "/models") return json({ model: store.createModel(body) });
       if (path.startsWith("/models/") && path.endsWith("/load-as-initial")) {
         return json({ model: store.loadModelAsInitial(path.split("/")[2]) });

@@ -46,6 +46,8 @@ class StudioHandler(BaseHTTPRequestHandler):
                 self._send_json({"dataset": self.store.import_dataset(payload)})
             elif path == "/circuit-templates/validate":
                 self._send_json({"validation": self.store.validate_template(payload)})
+            elif path == "/preprocess/joint":
+                self._send_json({"preprocessing": self.store.preprocess_joint_data(payload)})
             elif path == "/models":
                 self._send_json({"model": self.store.create_model(payload)})
             elif path == "/models/import-json":

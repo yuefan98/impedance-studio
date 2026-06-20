@@ -21,6 +21,9 @@ type RunPayload = {
   project_id?: string;
   model_id?: string;
   dataset_ids?: string[];
+  eis_dataset_id?: string;
+  second_dataset_id?: string;
+  max_f?: number;
   run_name?: string;
 };
 
@@ -216,13 +219,15 @@ class DemoStore {
   runJointFit(payload: RunPayload, batch = false) {
     const projectId = payload.project_id || this.defaultProjectId();
     const model = this.requireModel(payload.model_id || this.defaultModelId(projectId));
-    const datasetIds = payload.dataset_ids?.length ? payload.dataset_ids : [this.defaultDatasetId(projectId)];
+    const { eis, second } = this.jointDatasets(payload, projectId);
+    const preprocessing = preprocessJointDatasets(eis, second, payload.max_f ?? 10);
+    const fitScale = impedanceScale([...preprocessing.eis.rows, ...preprocessing.second.rows]);
+    const fittedDatasets = [preprocessing.eis, preprocessing.second];
     const now = this.now();
     const runId = this.id("run");
     const snapshots: ModelTemplate[] = [];
-    const items = datasetIds.map((datasetId) => {
-      const dataset = this.requireDataset(datasetId);
-      const result = fitResult(dataset, model);
+    const items = fittedDatasets.map((dataset) => {
+      const result = fitResult(dataset, model, fitScale, preprocessing.method);
       const item = {
         id: this.id("item"),
         run_id: runId,
@@ -260,7 +265,13 @@ class DemoStore {
       progress: 100,
       started_at: now,
       completed_at: now,
-      summary: { dataset_count: datasetIds.length, fit_mode: "joint", run_name: payload.run_name || "Joint fit" },
+      summary: {
+        dataset_count: fittedDatasets.length,
+        fit_mode: "joint",
+        max_f: preprocessing.max_f,
+        preprocessing_method: preprocessing.method,
+        run_name: payload.run_name || "Joint fit",
+      },
       items,
       snapshots,
     };
@@ -309,6 +320,28 @@ class DemoStore {
 
   private defaultDatasetId(projectId: string) {
     return this.listDatasets(projectId)[0]?.id || this.insertDataset(projectId, syntheticDataset("EIS", "Synthetic EIS")).id;
+  }
+
+  preprocessJointData(payload: RunPayload) {
+    const projectId = payload.project_id || this.defaultProjectId();
+    const { eis, second } = this.jointDatasets(payload, projectId);
+    return preprocessJointDatasets(eis, second, payload.max_f ?? 10);
+  }
+
+  private jointDatasets(payload: RunPayload, projectId: string) {
+    const requested = (payload.dataset_ids || []).map((datasetId) => this.requireDataset(datasetId));
+    const projectDatasets = this.listDatasets(projectId);
+    const eis = payload.eis_dataset_id
+      ? this.requireDataset(payload.eis_dataset_id)
+      : requested.find((dataset) => dataset.kind === "EIS") ?? projectDatasets.find((dataset) => dataset.kind === "EIS");
+    const second = payload.second_dataset_id
+      ? this.requireDataset(payload.second_dataset_id)
+      : requested.find((dataset) => dataset.kind === "2nd-NLEIS") ?? projectDatasets.find((dataset) => dataset.kind === "2nd-NLEIS");
+    if (!eis || !second) throw new Error("Joint preprocessing requires one EIS and one 2nd-NLEIS dataset.");
+    if (eis.project_id !== projectId || second.project_id !== projectId) {
+      throw new Error("Selected datasets must belong to the active project.");
+    }
+    return { eis, second };
   }
 
   private requireProject(projectId: string) {
@@ -443,8 +476,7 @@ function row(frequency: number, zReal: number, zImag: number): DatasetRow {
   };
 }
 
-function fitResult(dataset: Dataset, model: ModelTemplate) {
-  const scale = Math.max(dataset.rows.reduce((sum, item) => sum + Math.abs(item.z_real) + Math.abs(item.z_imag), 0) / dataset.rows.length, 1e-9);
+function fitResult(dataset: Dataset, model: ModelTemplate, scale = impedanceScale(dataset.rows), preprocessingMethod = "") {
   const base = model.initial_guess.length ? model.initial_guess : [scale, scale / 2, 0.001];
   const parameters = base.map((value, index) => Number((value * (0.98 + 0.01 * index)).toFixed(8)));
   const fit = dataset.rows.map((item, index) => {
@@ -453,7 +485,7 @@ function fitResult(dataset: Dataset, model: ModelTemplate) {
   });
   return {
     fit_mode: "joint",
-    adapter: "hosted-demo-adapter",
+    adapter: `hosted-demo-adapter; ${preprocessingMethod}`.replace(/; $/, ""),
     circuit_1: model.circuit_1,
     circuit_2: model.circuit_2,
     parameters,
@@ -462,10 +494,47 @@ function fitResult(dataset: Dataset, model: ModelTemplate) {
       method: "MM",
       chi_square: Number((0.0008 + scale * 1e-5).toFixed(8)),
       status: "pass",
-      message: "Completed in Vercel hosted demo mode; connect the Python worker for real fitting.",
+      message: "Fitted from data_truncation-compatible rows in Vercel hosted demo mode.",
     },
     plot_series: { data: dataset.rows, fit },
   };
+}
+
+function preprocessJointDatasets(eis: Dataset, second: Dataset, maxF: number) {
+  if (!Number.isFinite(maxF) || maxF <= 0) throw new Error("max_f must be a finite positive frequency in Hz.");
+  const secondByFrequency = new Map(second.rows.map((item) => [item.frequency, item]));
+  if (secondByFrequency.size !== second.rows.length) throw new Error("2nd-NLEIS contains duplicate frequencies.");
+  const paired = eis.rows.flatMap((first) => {
+    const secondRow = secondByFrequency.get(first.frequency);
+    return secondRow ? [{ first, second: secondRow }] : [];
+  });
+  if (!paired.length) throw new Error("EIS and 2nd-NLEIS must share at least one frequency for joint preprocessing.");
+  const inductanceRemoved = paired.filter(({ first }) => first.z_imag < 0);
+  const secondTruncated = inductanceRemoved.filter(({ first }) => first.frequency < maxF);
+  if (!inductanceRemoved.length) throw new Error("Preprocessing removed every EIS point because Z1'' must be negative.");
+  if (!secondTruncated.length) throw new Error(`max_f=${maxF} Hz retains no 2nd-NLEIS points; choose a larger maximum frequency.`);
+  return {
+    max_f: maxF,
+    method: "nleis.data_processing.data_truncation-compatible",
+    inductance_points_removed: paired.length - inductanceRemoved.length,
+    second_points_removed: inductanceRemoved.length - secondTruncated.length,
+    eis: datasetWithRows(eis, inductanceRemoved.map(({ first }) => first)),
+    second: datasetWithRows(second, secondTruncated.map(({ second: secondRow }) => secondRow)),
+  };
+}
+
+function datasetWithRows(dataset: Dataset, rows: DatasetRow[]): Dataset {
+  return {
+    ...dataset,
+    point_count: rows.length,
+    freq_min: Math.min(...rows.map((row) => row.frequency)),
+    freq_max: Math.max(...rows.map((row) => row.frequency)),
+    rows,
+  };
+}
+
+function impedanceScale(rows: DatasetRow[]) {
+  return Math.max(rows.reduce((sum, item) => sum + Math.abs(item.z_real) + Math.abs(item.z_imag), 0) / rows.length, 1e-9);
 }
 
 function normalizeModel(model: ModelTemplate): ModelTemplate {

@@ -83,6 +83,12 @@
   text-transform: uppercase;
 }
 
+.field-note {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .sidebar-search input {
   min-height: 33px;
   font-size: 12px;

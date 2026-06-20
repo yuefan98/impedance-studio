@@ -79,14 +79,18 @@ class StorageTests(unittest.TestCase):
 
     def test_batch_joint_fit_persists_run_and_snapshot(self):
         project = self.store.list_projects()[0]
-        datasets = self.store.list_datasets(project["id"])[:2]
+        datasets = self.store.list_datasets(project["id"])
+        eis = next(dataset for dataset in datasets if dataset["kind"] == "EIS")
+        second = next(dataset for dataset in datasets if dataset["kind"] == "2nd-NLEIS")
         model = self.store.list_models(project["id"])[0]
 
         run = self.store.run_joint_fit(
             {
                 "project_id": project["id"],
                 "model_id": model["id"],
-                "dataset_ids": [dataset["id"] for dataset in datasets],
+                "eis_dataset_id": eis["id"],
+                "second_dataset_id": second["id"],
+                "max_f": 10,
             },
             batch=True,
         )
@@ -95,6 +99,28 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(len(run["items"]), 2)
         self.assertEqual(len(run["snapshots"]), 2)
         self.assertEqual(self.store.list_runs(project["id"])[0]["status"], "completed")
+
+    def test_joint_preprocessing_is_used_for_preview_and_fit(self):
+        project = self.store.list_projects()[0]
+        datasets = self.store.list_datasets(project["id"])
+        eis = next(dataset for dataset in datasets if dataset["kind"] == "EIS")
+        second = next(dataset for dataset in datasets if dataset["kind"] == "2nd-NLEIS")
+        payload = {
+            "project_id": project["id"],
+            "eis_dataset_id": eis["id"],
+            "second_dataset_id": second["id"],
+            "max_f": 10,
+        }
+
+        preprocessing = self.store.preprocess_joint_data(payload)
+        run = self.store.run_joint_fit(payload)
+
+        self.assertEqual(preprocessing["max_f"], 10)
+        self.assertTrue(all(row["z_imag"] < 0 for row in preprocessing["eis"]["rows"]))
+        self.assertTrue(all(row["frequency"] < 10 for row in preprocessing["second"]["rows"]))
+        self.assertEqual(run["summary"]["max_f"], 10)
+        self.assertEqual(run["items"][0]["result"]["plot_series"]["data"], preprocessing["eis"]["rows"])
+        self.assertEqual(run["items"][1]["result"]["plot_series"]["data"], preprocessing["second"]["rows"])
 
     def test_delete_dataset_removes_it_from_project(self):
         project = self.store.list_projects()[0]
