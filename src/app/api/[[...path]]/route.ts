@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { demoStore } from "@/lib/demo-store";
+import { demoStore, type JointFitAnalysis } from "@/lib/demo-store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 type RouteContext = {
   params: Promise<{ path?: string[] }>;
@@ -47,8 +48,8 @@ async function handleRequest(method: "GET" | "POST" | "DELETE", request: Request
       if (path.startsWith("/models/") && path.endsWith("/load-as-initial")) {
         return json({ model: store.loadModelAsInitial(path.split("/")[2]) });
       }
-      if (path === "/runs/joint-fit") return json({ run: store.runJointFit(body, false) });
-      if (path === "/runs/batch-joint-fit") return json({ run: store.runJointFit(body, true) });
+      if (path === "/runs/joint-fit") return json({ run: store.runJointFit(body, false, await runJointFit(request, store, body)) });
+      if (path === "/runs/batch-joint-fit") return json({ run: store.runJointFit(body, true, await runJointFit(request, store, body)) });
     }
 
     if (method === "DELETE") {
@@ -65,4 +66,21 @@ async function handleRequest(method: "GET" | "POST" | "DELETE", request: Request
 
 function json(payload: unknown, status = 200) {
   return NextResponse.json(payload, { status });
+}
+
+async function runJointFit(request: Request, store: ReturnType<typeof demoStore>, body: Record<string, unknown>) {
+  if (!process.env.VERCEL && !process.env.ANALYSIS_ENGINE_URL) return undefined;
+
+  const endpoint = process.env.ANALYSIS_ENGINE_URL || new URL("/api/fit", request.url).toString();
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(store.jointFitInput(body)),
+    cache: "no-store",
+  });
+  const payload = (await response.json()) as { analysis?: JointFitAnalysis; error?: string };
+  if (!response.ok || !payload.analysis) {
+    throw new Error(payload.error || "The nleis fitting service did not return an analysis.");
+  }
+  return payload.analysis;
 }

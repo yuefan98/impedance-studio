@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/fit.py": {
+      "maxDuration": 60,
+      "memory": 1024,
+      "excludeFiles": "{service/tests/**,service/sample_data/**,node_modules/**}"
+    }
+  }
+}

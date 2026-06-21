@@ -27,6 +27,44 @@ type RunPayload = {
   run_name?: string;
 };
 
+type FitResult = {
+  fit_mode: string;
+  adapter: string;
+  circuit_1: string;
+  circuit_2: string;
+  parameters: number[];
+  confidence: number[];
+  validation: {
+    method: string;
+    chi_square: number;
+    status: string;
+    message: string;
+  };
+  plot_series: { data: DatasetRow[]; fit: DatasetRow[] };
+};
+
+type JointPreprocessing = {
+  max_f: number;
+  method: string;
+  inductance_points_removed: number;
+  second_points_removed: number;
+  eis: Dataset;
+  second: Dataset;
+};
+
+export type JointFitInput = {
+  eis_dataset: Dataset;
+  second_dataset: Dataset;
+  model: ModelTemplate;
+  max_f: number;
+};
+
+export type JointFitAnalysis = {
+  preprocessing: JointPreprocessing;
+  eis: { dataset: Dataset; result: FitResult };
+  second: { dataset: Dataset; result: FitResult };
+};
+
 const CONDITIONS = ["10a", "10f", "30a", "30f", "40a", "40f", "50a", "50f", "60a", "60f"];
 const SAMPLE_SOURCE = "Part II/data";
 const ALLOWED_ELEMENT_PREFIXES = [
@@ -62,12 +100,13 @@ class DemoStore {
   }
 
   health() {
+    const realEngineEnabled = Boolean(process.env.VERCEL || process.env.ANALYSIS_ENGINE_URL);
     return {
       ok: true,
-      mode: "hosted-demo",
+      mode: realEngineEnabled ? "vercel-nleis" : "local-demo",
       database: "ephemeral Vercel demo store",
       supabase: getSupabaseConfigStatus(),
-      optional_libraries: { impedance: false, nleis: false },
+      optional_libraries: { impedance: realEngineEnabled, nleis: realEngineEnabled },
     };
   }
 
@@ -216,25 +255,41 @@ class DemoStore {
       .sort((a, b) => b.started_at.localeCompare(a.started_at));
   }
 
-  runJointFit(payload: RunPayload, batch = false) {
+  jointFitInput(payload: RunPayload): JointFitInput {
     const projectId = payload.project_id || this.defaultProjectId();
     const model = this.requireModel(payload.model_id || this.defaultModelId(projectId));
     const { eis, second } = this.jointDatasets(payload, projectId);
-    const preprocessing = preprocessJointDatasets(eis, second, payload.max_f ?? 10);
+    return {
+      eis_dataset: eis,
+      second_dataset: second,
+      model,
+      max_f: payload.max_f ?? 10,
+    };
+  }
+
+  runJointFit(payload: RunPayload, batch = false, analysis?: JointFitAnalysis) {
+    const projectId = payload.project_id || this.defaultProjectId();
+    const model = this.requireModel(payload.model_id || this.defaultModelId(projectId));
+    const input = this.jointFitInput(payload);
+    const preprocessing = analysis?.preprocessing ?? preprocessJointDatasets(input.eis_dataset, input.second_dataset, input.max_f);
     const fitScale = impedanceScale([...preprocessing.eis.rows, ...preprocessing.second.rows]);
-    const fittedDatasets = [preprocessing.eis, preprocessing.second];
+    const fittedDatasets = analysis
+      ? [analysis.eis, analysis.second]
+      : [preprocessing.eis, preprocessing.second].map((dataset) => ({
+          dataset,
+          result: fitResult(dataset, model, fitScale, preprocessing.method),
+        }));
     const now = this.now();
     const runId = this.id("run");
     const snapshots: ModelTemplate[] = [];
-    const items = fittedDatasets.map((dataset) => {
-      const result = fitResult(dataset, model, fitScale, preprocessing.method);
+    const items = fittedDatasets.map(({ dataset, result }) => {
       const item = {
         id: this.id("item"),
         run_id: runId,
         dataset_id: dataset.id,
         status: "completed",
         progress: 100,
-        message: "Joint fit completed in hosted demo adapter",
+        message: analysis ? "Joint fit completed with nleis.EISandNLEIS" : "Joint fit completed in local demo adapter",
         result,
       };
       snapshots.push(

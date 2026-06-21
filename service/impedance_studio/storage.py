@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import math
 import sqlite3
 import time
 import uuid
@@ -9,6 +8,7 @@ from pathlib import Path
 from typing import Any, Optional, Union
 
 from .circuits import validate_circuit_pair
+from .fitting import fit_joint_datasets
 from .importers import generate_synthetic_dataset, parse_autolab_import, parse_table_import
 from .preprocessing import DEFAULT_MAX_F, preprocess_joint_datasets
 from .sample_data import load_manuscript_samples, manuscript_sample
@@ -270,13 +270,14 @@ class StudioStore:
         model_id = payload.get("model_id") or self._default_model_id(project_id)
         model = self._get_model(model_id)
         eis_dataset, second_dataset = self._joint_datasets(payload, project_id)
-        preprocessing = preprocess_joint_datasets(
+        analysis = fit_joint_datasets(
             eis_dataset,
             second_dataset,
+            model,
             max_f=payload.get("max_f", DEFAULT_MAX_F),
         )
-        fitted_datasets = [preprocessing["eis"], preprocessing["second"]]
-        fit_scale = _impedance_scale([row for dataset in fitted_datasets for row in dataset["rows"]])
+        preprocessing = analysis["preprocessing"]
+        fitted_datasets = [analysis["eis"], analysis["second"]]
         run_id = _id()
         started = _now()
         self.connection.execute(
@@ -306,13 +307,9 @@ class StudioStore:
         )
         items = []
         snapshots = []
-        for dataset in fitted_datasets:
-            result = _fit_result(
-                dataset,
-                model,
-                scale=fit_scale,
-                preprocessing_method=preprocessing["method"],
-            )
+        for fitted in fitted_datasets:
+            dataset = fitted["dataset"]
+            result = fitted["result"]
             item_id = _id()
             self.connection.execute(
                 """
@@ -583,50 +580,6 @@ def _decode_model(row: sqlite3.Row) -> dict[str, Any]:
         data["shared_parameters"] = ["RC0_0 -> RCn0_0", "RC0_1 -> RCn0_1"]
         data["bounds"] = {"lower": [0, 0, -0.5], "upper": ["inf", "inf", 0.5]}
     return data
-
-
-def _fit_result(
-    dataset: dict[str, Any],
-    model: dict[str, Any],
-    *,
-    scale: Optional[float] = None,
-    preprocessing_method: str = "",
-) -> dict[str, Any]:
-    rows = dataset["rows"]
-    scale = scale if scale is not None else _impedance_scale(rows)
-    base = model.get("initial_guess") or [scale, scale / 2]
-    parameters = [round(float(value) * (0.98 + 0.01 * idx), 8) for idx, value in enumerate(base)]
-    fitted_rows = []
-    for idx, row in enumerate(rows):
-        drift = 1 + 0.015 * math.sin(idx / max(len(rows) - 1, 1) * math.pi)
-        fitted_rows.append(
-            {
-                "frequency": row["frequency"],
-                "z_real": row["z_real"] * drift,
-                "z_imag": row["z_imag"] * (2 - drift),
-                "z_abs": row["z_abs"],
-                "phase": row["phase"],
-            }
-        )
-    return {
-        "fit_mode": "joint",
-        "adapter": f"simulated-local-worker; {preprocessing_method}".rstrip("; "),
-        "circuit_1": model["circuit_1"],
-        "circuit_2": model["circuit_2"],
-        "parameters": parameters,
-        "confidence": [round(max(abs(value) * 0.025, 1e-8), 8) for value in parameters],
-        "validation": {
-            "method": "MM",
-            "chi_square": round(0.0008 + scale * 1e-5, 8),
-            "status": "pass",
-            "message": "Fitted from nleis.py-preprocessed rows in the local worker simulation.",
-        },
-        "plot_series": {"data": rows, "fit": fitted_rows},
-    }
-
-
-def _impedance_scale(rows: list[dict[str, Any]]) -> float:
-    return max(sum(abs(row["z_real"]) + abs(row["z_imag"]) for row in rows) / len(rows), 1e-9)
 
 
 def _id() -> str:

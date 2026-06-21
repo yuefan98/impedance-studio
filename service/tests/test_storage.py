@@ -1,16 +1,40 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from impedance_studio.preprocessing import preprocess_joint_datasets
 from impedance_studio.storage import StudioStore
+
+
+def fake_joint_fit(eis, second, model, *, max_f):
+    preprocessing = preprocess_joint_datasets(eis, second, max_f=max_f)
+
+    def fitted(dataset):
+        result = {
+            "fit_mode": "joint",
+            "adapter": "test-nleis-adapter",
+            "circuit_1": model["circuit_1"],
+            "circuit_2": model["circuit_2"],
+            "parameters": model["initial_guess"],
+            "confidence": [0.0] * len(model["initial_guess"]),
+            "validation": {"method": "nleis.EISandNLEIS", "chi_square": 0.0, "status": "pass", "message": "test"},
+            "plot_series": {"data": dataset["rows"], "fit": dataset["rows"]},
+        }
+        return {"dataset": dataset, "result": result}
+
+    return {"preprocessing": preprocessing, "eis": fitted(preprocessing["eis"]), "second": fitted(preprocessing["second"])}
 
 
 class StorageTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = StudioStore(Path(self.tmp.name) / "studio.sqlite3")
+        self.fit_patch = patch("impedance_studio.storage.fit_joint_datasets", side_effect=fake_joint_fit)
+        self.fit_patch.start()
 
     def tearDown(self):
+        self.fit_patch.stop()
         self.store.close()
         self.tmp.cleanup()
 

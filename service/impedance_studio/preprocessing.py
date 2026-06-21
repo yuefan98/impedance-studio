@@ -60,13 +60,31 @@ def preprocess_joint_datasets(
 
 
 def _load_data_truncation() -> Optional[Callable[..., tuple[Any, Any, Any, Any, Any]]]:
-    """Load the optional nleis.py helper without making the MVP service import it."""
-    try:
-        return import_module("nleis.data_processing").data_truncation
-    except ModuleNotFoundError as exc:
-        if exc.name and not exc.name.startswith("nleis"):
-            raise
-        return None
+    """Load nleis.py's paired truncation helper across supported releases.
+
+    nleis.py 0.2 exposes the helper as ``data_processing`` in
+    ``nleis.nleis_fitting``. Newer releases expose the same operation under
+    the clearer ``data_truncation`` name. Both return the five arrays consumed
+    below, so the service can use the project's implementation rather than
+    reimplementing it whenever nleis.py is installed.
+    """
+    candidates = (
+        ("nleis.data_processing", "data_truncation"),
+        ("nleis.nleis_fitting", "data_truncation"),
+        ("nleis.nleis_fitting", "data_processing"),
+    )
+    for module_name, attribute in candidates:
+        try:
+            implementation = getattr(import_module(module_name), attribute)
+        except ModuleNotFoundError as exc:
+            if exc.name and not exc.name.startswith("nleis"):
+                raise
+            continue
+        except AttributeError:
+            continue
+        if callable(implementation):
+            return implementation
+    return None
 
 
 def _compatible_data_truncation(
