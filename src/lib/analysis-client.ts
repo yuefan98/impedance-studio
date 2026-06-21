@@ -77,10 +77,14 @@ export const analysisClient = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  preprocessJointData: (body: { project_id: string; eis_dataset_id: string; second_dataset_id: string; max_f: number }) =>
+  preprocessJointData: (
+    body: { project_id: string; eis_dataset_id: string; second_dataset_id: string; max_f: number },
+    signal?: AbortSignal,
+  ) =>
     request<{ preprocessing: JointPreprocessing }>("/preprocess/joint", {
       method: "POST",
       body: JSON.stringify(body),
+      signal,
     }),
   runJointFit: (body: {
     project_id: string;

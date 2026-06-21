@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { analysisClient } from "@/lib/analysis-client";
 import type { CircuitValidation, Dataset, Health, JointPreprocessing, ModelTemplate, Project, Run } from "@/lib/types";
 import { ConfirmDialog, type ConfirmRequest } from "./workbench/common";
@@ -31,6 +31,9 @@ export function Workbench() {
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [preprocessing, setPreprocessing] = useState<JointPreprocessing | null>(null);
   const [preprocessingError, setPreprocessingError] = useState<string | null>(null);
+  const activeProjectIdRef = useRef(state.activeProjectId);
+  const healthRef = useRef<Health | null>(null);
+  const hasStartedInitialRefresh = useRef(false);
 
   const activeProject = projects.find((project) => project.id === state.activeProjectId);
   const activeDataset = datasets.find((dataset) => dataset.id === state.activeDatasetId) ?? datasets[0];
@@ -45,13 +48,19 @@ export function Workbench() {
   const filteredDatasets = useMemo(() => filterDatasets(datasets, state.search), [datasets, state.search]);
   const filteredModels = useMemo(() => filterModels(models, state.search), [models, state.search]);
 
+  useEffect(() => {
+    activeProjectIdRef.current = state.activeProjectId;
+  }, [state.activeProjectId]);
+
   const refresh = useCallback(async (projectIdOverride?: string) => {
     setStatus("loading");
     setError(null);
     try {
-      const healthResult = await analysisClient.health();
-      const projectResult = await analysisClient.projects();
-      const nextProjectId = projectIdOverride || state.activeProjectId || projectResult.projects[0]?.id || "";
+      const [healthResult, projectResult] = await Promise.all([
+        healthRef.current ? Promise.resolve(healthRef.current) : analysisClient.health(),
+        analysisClient.projects(),
+      ]);
+      const nextProjectId = projectIdOverride || activeProjectIdRef.current || projectResult.projects[0]?.id || "";
       const [datasetResult, modelResult, runResult] = await Promise.all([
         analysisClient.datasets(nextProjectId),
         analysisClient.models(nextProjectId),
@@ -72,43 +81,54 @@ export function Workbench() {
           projectId: nextProjectId,
         },
       });
+      healthRef.current = healthResult;
       setStatus("ready");
     } catch (caught) {
       setStatus("error");
       setError(caught instanceof Error ? caught.message : "Unable to reach local analysis service.");
     }
-  }, [dispatch, state.activeProjectId]);
+  }, [dispatch]);
 
   useEffect(() => {
+    if (hasStartedInitialRefresh.current) return;
+    hasStartedInitialRefresh.current = true;
     void refresh();
   }, [refresh]);
 
   useEffect(() => {
-    let cancelled = false;
     if (!state.activeProjectId || !state.eisDatasetId || !state.secondDatasetId || state.maxFrequency <= 0) {
       setPreprocessing(null);
       setPreprocessingError(state.maxFrequency <= 0 ? "2nd-NLEIS max f must be greater than zero." : null);
-      return () => {
-        cancelled = true;
-      };
+      return;
     }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      void analysisClient
+        .preprocessJointData(
+          {
+            project_id: state.activeProjectId,
+            eis_dataset_id: state.eisDatasetId,
+            second_dataset_id: state.secondDatasetId,
+            max_f: state.maxFrequency,
+          },
+          controller.signal,
+        )
+        .then((result) => {
+          if (!controller.signal.aborted) setPreprocessing(result.preprocessing);
+        })
+        .catch((caught) => {
+          if (!controller.signal.aborted) {
+            setPreprocessingError(caught instanceof Error ? caught.message : "Unable to preprocess the selected joint dataset.");
+          }
+        });
+    }, 180);
+
     setPreprocessing(null);
     setPreprocessingError(null);
-    void analysisClient
-      .preprocessJointData({
-        project_id: state.activeProjectId,
-        eis_dataset_id: state.eisDatasetId,
-        second_dataset_id: state.secondDatasetId,
-        max_f: state.maxFrequency,
-      })
-      .then((result) => {
-        if (!cancelled) setPreprocessing(result.preprocessing);
-      })
-      .catch((caught) => {
-        if (!cancelled) setPreprocessingError(caught instanceof Error ? caught.message : "Unable to preprocess the selected joint dataset.");
-      });
     return () => {
-      cancelled = true;
+      window.clearTimeout(timeoutId);
+      controller.abort();
     };
   }, [state.activeProjectId, state.eisDatasetId, state.maxFrequency, state.secondDatasetId]);
 
@@ -242,7 +262,13 @@ export function Workbench() {
         type: "updateModelDraft",
         update: {
           ...update,
-          initialGuess: syncInitialGuessText(circuit1, circuit2, state.modelDraft.initialGuess),
+          initialGuess: syncInitialGuessText(
+            state.modelDraft.circuit1,
+            state.modelDraft.circuit2,
+            circuit1,
+            circuit2,
+            state.modelDraft.initialGuess,
+          ),
         },
       });
       return;
@@ -275,6 +301,16 @@ export function Workbench() {
       if (guessIssue) {
         dispatch({ type: "setValidation", validation: invalidCircuitValidation(guessIssue, parameterNames) });
         throw new Error(guessIssue);
+      }
+      const validationResult = await analysisClient.validateCircuit({
+        circuit_1: state.modelDraft.circuit1,
+        circuit_2: state.modelDraft.circuit2,
+        initial_guess: guessValues,
+        constants: {},
+      });
+      dispatch({ type: "setValidation", validation: validationResult.validation });
+      if (!validationResult.validation.valid) {
+        throw new Error(validationResult.validation.errors[0] ?? "Circuit pair needs attention.");
       }
       const result = await analysisClient.saveModel({
         project_id: state.activeProjectId,
@@ -311,7 +347,15 @@ export function Workbench() {
 
   async function runJointFit(batch: boolean) {
     const ids = [state.eisDatasetId, state.secondDatasetId].filter(Boolean);
-    if (!state.activeProjectId || !state.activeModelId || ids.length !== 2 || state.maxFrequency <= 0) return;
+    if (
+      !state.activeProjectId ||
+      !state.activeModelId ||
+      ids.length !== 2 ||
+      state.maxFrequency <= 0 ||
+      !ids.every((id) => state.includedDatasetIds.includes(id))
+    ) {
+      return;
+    }
     await runAction(batch ? "batch" : "run", async () => {
       const result = batch
         ? await analysisClient.runBatchJointFit({
@@ -494,14 +538,14 @@ export function Workbench() {
 
 function getInitialGuessIssue(entries: string[], expectedCount: number) {
   const normalized = entries.map((entry) => entry.trim());
+  if (expectedCount > 0 && normalized.length !== expectedCount) {
+    return `Initial guess count must match the circuit parameter count (${expectedCount}).`;
+  }
   const filled = normalized.filter(Boolean);
   if (!filled.length) return "At least one numeric initial guess is required.";
   if (normalized.some((entry) => !entry) && filled.length) return "Initial guesses contain an empty entry. Remove extra commas or fill the value.";
   const invalid = normalized.filter((entry) => entry && !Number.isFinite(Number(entry)));
   if (invalid.length) return `Initial guesses must be finite numbers. Check: ${invalid.slice(0, 4).join(", ")}.`;
-  if (expectedCount > 0 && normalized.length !== expectedCount) {
-    return `Initial guess count must match the circuit parameter count (${expectedCount}).`;
-  }
   return null;
 }
 

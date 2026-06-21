@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { validateCircuitPair } from "./circuit-utils";
 import { getSupabaseConfigStatus } from "./supabase-config";
-import type { CircuitValidation, Dataset, DatasetRow, ModelTemplate, Project, Run } from "./types";
+import type { Dataset, DatasetRow, ModelTemplate, Project, Run } from "./types";
 
 type ImportPayload = {
   project_id?: string;
@@ -67,26 +68,6 @@ export type JointFitAnalysis = {
 
 const CONDITIONS = ["10a", "10f", "30a", "30f", "40a", "40f", "50a", "50f", "60a", "60f"];
 const SAMPLE_SOURCE = "Part II/data";
-const ALLOWED_ELEMENT_PREFIXES = [
-  "CPE",
-  "TDSn",
-  "TDPn",
-  "TLMQ",
-  "TDS",
-  "TDP",
-  "Wo",
-  "Ws",
-  "La",
-  "RCn",
-  "RC",
-  "R",
-  "C",
-  "L",
-  "W",
-  "T",
-  "G",
-  "K",
-];
 
 class DemoStore {
   private projects: Project[] = [];
@@ -602,99 +583,6 @@ function normalizeModel(model: ModelTemplate): ModelTemplate {
     };
   }
   return model;
-}
-
-function parameterNames(circuit1: string, circuit2: string, values: number[]) {
-  if (circuit1 === "RC0" && circuit2 === "RCn0") {
-    return ["RC0_0 / RCn0_0", "RC0_1 / RCn0_1", "RCn0_2"];
-  }
-  return values.map((_, index) => `p${index}`);
-}
-
-function validateCircuitPair(circuit1: string, circuit2: string, initialGuess: number[], constants: Record<string, number>): CircuitValidation {
-  const elements1 = extractElements(circuit1);
-  const elements2 = extractElements(circuit2);
-  const errors: string[] = [];
-  const warnings: string[] = [];
-
-  if (!elements1.length) errors.push("EIS circuit_1 is required.");
-  if (!elements2.length) errors.push("2nd-NLEIS circuit_2 is required for joint fitting.");
-  if (circuit2 && !circuit2.replace(/\s/g, "").includes("d(")) {
-    warnings.push("2nd-NLEIS circuits usually use d(cathode, anode) difference grouping.");
-  }
-
-  const unknown = [...elements1, ...elements2].filter((element) => !elementPrefix(element));
-  if (unknown.length) errors.push(`Unknown element prefix: ${Array.from(new Set(unknown)).sort().join(", ")}.`);
-
-  warnings.push(...pairingWarnings(elements1, elements2));
-
-  const names = validationParameterNames(elements1, elements2, constants, circuit1, circuit2);
-  if (initialGuess.length && initialGuess.length !== names.length) {
-    warnings.push(
-      "Initial guess count does not match the estimated non-constant parameter count. The Python adapter will perform authoritative validation at run time.",
-    );
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors,
-    warnings,
-    elements_1: elements1,
-    elements_2: elements2,
-    estimated_parameters: names.length,
-    parameter_names: names,
-  };
-}
-
-function extractElements(circuit: string) {
-  return circuit
-    .replace(/\s/g, "")
-    .match(/[A-Za-z]+_?\d*/g)
-    ?.filter((token) => !["p", "d", "s"].includes(token)) ?? [];
-}
-
-function elementPrefix(element: string) {
-  const clean = element.replace(/_/g, "");
-  return ALLOWED_ELEMENT_PREFIXES.find((prefix) => clean.startsWith(prefix));
-}
-
-function pairingWarnings(elements1: string[], elements2: string[]) {
-  const baseElements = new Set(elements1.map((element) => element.replace(/_/g, "")));
-  return elements2.flatMap((element) => {
-    const raw = element.replace(/_/g, "");
-    if (!raw.includes("n")) return [];
-    const candidate = raw.replace("n", "");
-    return baseElements.has(candidate) ? [] : [`${element} has no obvious paired EIS element in circuit_1.`];
-  });
-}
-
-function validationParameterNames(
-  elements1: string[],
-  elements2: string[],
-  constants: Record<string, number>,
-  circuit1: string,
-  circuit2: string,
-) {
-  if (circuit1.trim() === "RC0" && circuit2.trim() === "RCn0") return parameterNames("RC0", "RCn0", [0, 0, 0]);
-  const seen = new Set<string>();
-  return [...elements1, ...elements2].flatMap((element) => {
-    const count = parameterCount(element);
-    return Array.from({ length: count }, (_, index) => {
-      const name = count === 1 ? element : `${element}_${index}`;
-      if (name in constants || seen.has(name)) return "";
-      seen.add(name);
-      return name;
-    }).filter(Boolean);
-  });
-}
-
-function parameterCount(element: string) {
-  const prefix = elementPrefix(element);
-  if (["CPE", "Wo", "Ws", "La", "RC", "RCn"].includes(prefix ?? "")) return 2;
-  if (["TDS", "TDP"].includes(prefix ?? "")) return 5;
-  if (["TDSn", "TDPn"].includes(prefix ?? "")) return 7;
-  if (prefix === "TLMQ") return 4;
-  return 1;
 }
 
 function findHeader(headers: string[], candidates: string[]) {

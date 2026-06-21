@@ -358,7 +358,28 @@ class StudioStore:
             query += " where project_id = ?"
             params = (project_id,)
         query += " order by started_at desc"
-        return [self._decode_run(row["id"]) for row in self.connection.execute(query, params)]
+        run_rows = list(self.connection.execute(query, params))
+        if not run_rows:
+            return []
+
+        run_ids = [row["id"] for row in run_rows]
+        placeholders = ",".join("?" for _ in run_ids)
+        items_by_run: dict[str, list[dict[str, Any]]] = {run_id: [] for run_id in run_ids}
+        for item in self.connection.execute(
+            f"select * from run_items where run_id in ({placeholders})",
+            tuple(run_ids),
+        ):
+            decoded = dict(item)
+            decoded["result"] = _loads(decoded.pop("result_json"))
+            items_by_run[item["run_id"]].append(decoded)
+
+        runs = []
+        for row in run_rows:
+            decoded = dict(row)
+            decoded["summary"] = _loads(decoded.pop("summary_json"))
+            decoded["items"] = items_by_run[row["id"]]
+            runs.append(decoded)
+        return runs
 
     def _migrate(self) -> None:
         self.connection.executescript(

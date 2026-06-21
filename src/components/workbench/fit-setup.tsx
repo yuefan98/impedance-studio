@@ -42,7 +42,13 @@ export function FitSetup({
   const secondDatasets = datasets.filter((dataset) => dataset.kind === "2nd-NLEIS");
   const eisDataset = datasets.find((dataset) => dataset.id === eisDatasetId);
   const secondDataset = datasets.find((dataset) => dataset.id === secondDatasetId);
-  const canRun = Boolean(includedDatasetIds.length && activeModel);
+  const selectedPairIncluded = Boolean(
+    eisDataset &&
+      secondDataset &&
+      includedDatasetIds.includes(eisDataset.id) &&
+      includedDatasetIds.includes(secondDataset.id),
+  );
+  const canRun = Boolean(selectedPairIncluded && activeModel && maxFrequency > 0);
 
   return (
     <section className="panel config-panel">
@@ -100,8 +106,8 @@ export function FitSetup({
       </div>
       <ParameterSummary model={activeModel} />
       <div className="stacked-actions">
-        <button disabled={!canRun || busyAction === "run"} onClick={onRun}>Run selected fit</button>
-        <button className="primary" disabled={!canRun || busyAction === "batch"} onClick={onBatch}>Run batch joint fit</button>
+        <button disabled={!canRun || busyAction !== null} onClick={onRun}>Run selected fit</button>
+        <button className="primary" disabled={!canRun || busyAction !== null} onClick={onBatch}>Run batch joint fit</button>
       </div>
     </section>
   );

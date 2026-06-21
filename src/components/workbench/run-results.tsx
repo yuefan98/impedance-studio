@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { Dataset, JointPreprocessing, ModelTemplate, Run } from "@/lib/types";
 import { ARTIFACT_KINDS, downloadRunArtifact, formatFrequency, formatNumber } from "./utils";
 import { MetricCard, PanelHeader, ParameterTable, StatusBadge } from "./common";
@@ -30,8 +31,16 @@ export function RunResults({
   const secondDataset = datasets.find((dataset) => dataset.id === secondDatasetId);
   const activeEisResult = activeRun?.items.find((item) => item.dataset_id === eisDatasetId)?.result;
   const activeSecondResult = activeRun?.items.find((item) => item.dataset_id === secondDatasetId)?.result;
-  const displayedEis = preprocessing?.eis ?? resultDataset(eisDataset, activeEisResult?.plot_series.data);
-  const displayedSecond = preprocessing?.second ?? resultDataset(secondDataset, activeSecondResult?.plot_series.data);
+  const displayedEis = useMemo(
+    () => preprocessing?.eis ?? resultDataset(eisDataset, activeEisResult?.plot_series.data),
+    [activeEisResult?.plot_series.data, eisDataset, preprocessing?.eis],
+  );
+  const displayedSecond = useMemo(
+    () => preprocessing?.second ?? resultDataset(secondDataset, activeSecondResult?.plot_series.data),
+    [activeSecondResult?.plot_series.data, preprocessing?.second, secondDataset],
+  );
+  const eisComparisonDatasets = useMemo(() => (displayedEis ? [displayedEis] : []), [displayedEis]);
+  const secondComparisonDatasets = useMemo(() => (displayedSecond ? [displayedSecond] : []), [displayedSecond]);
   const fitRows = activeEisResult?.plot_series.fit;
   const secondFitRows = activeSecondResult?.plot_series.fit;
   const metricCards = [
@@ -51,7 +60,7 @@ export function RunResults({
           <PlotCard
             title="EIS Nyquist: Z'' versus Z'"
             rows={displayedEis?.rows ?? []}
-            comparisonDatasets={displayedEis ? [displayedEis] : []}
+            comparisonDatasets={eisComparisonDatasets}
             fitRows={fitRows}
             xKey="z_real"
             yKey="z_imag"
@@ -60,7 +69,7 @@ export function RunResults({
           <PlotCard
             title="2nd-NLEIS Nyquist: Z2'' versus Z2'"
             rows={displayedSecond?.rows ?? []}
-            comparisonDatasets={displayedSecond ? [displayedSecond] : []}
+            comparisonDatasets={secondComparisonDatasets}
             fitRows={secondFitRows}
             xKey="z_real"
             yKey="z_imag"

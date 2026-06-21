@@ -1,8 +1,16 @@
-import { useMemo, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import type { Dataset, DatasetRow } from "@/lib/types";
 import { formatAxisValue, formatNumber } from "./utils";
 
-export function PlotCard({
+const PLOT_WIDTH = 500;
+const PLOT_HEIGHT = 500;
+const PLOT_PADDING = { top: 24, right: 20, bottom: 56, left: 64 };
+const AVAILABLE_PLOT_WIDTH = PLOT_WIDTH - PLOT_PADDING.left - PLOT_PADDING.right;
+const AVAILABLE_PLOT_HEIGHT = PLOT_HEIGHT - PLOT_PADDING.top - PLOT_PADDING.bottom;
+const SQUARE_PLOT_SIZE = Math.min(AVAILABLE_PLOT_WIDTH, AVAILABLE_PLOT_HEIGHT);
+const PLOT_COLORS = ["#0f8f89", "#d9572a", "#4d70b8", "#8a5fbf", "#557c38", "#b44f82"];
+
+export const PlotCard = memo(function PlotCard({
   title,
   rows,
   comparisonDatasets,
@@ -21,76 +29,57 @@ export function PlotCard({
   invertY?: boolean;
   logX?: boolean;
 }) {
-  const width = 500;
-  const height = 500;
-  const padding = { top: 24, right: 20, bottom: 56, left: 64 };
-  const equalAspect = xKey !== "frequency" && !logX;
-  const availablePlotWidth = width - padding.left - padding.right;
-  const availablePlotHeight = height - padding.top - padding.bottom;
-  const squarePlotSize = Math.min(availablePlotWidth, availablePlotHeight);
-  const plotArea = {
-    x: equalAspect ? padding.left + (availablePlotWidth - squarePlotSize) / 2 : padding.left,
-    y: padding.top,
-    width: equalAspect ? squarePlotSize : availablePlotWidth,
-    height: equalAspect ? squarePlotSize : availablePlotHeight,
-  };
   const [hoveredPoint, setHoveredPoint] = useState<PlottedPoint | null>(null);
   const [focusedIndex, setFocusedIndex] = useState(0);
-  const rawSeries = comparisonDatasets.length
-    ? comparisonDatasets.map((dataset, index) => ({
-        id: dataset.id,
-        name: dataset.name,
-        kind: dataset.kind,
-        rows: dataset.rows,
-        color: PLOT_COLORS[index % PLOT_COLORS.length],
-      }))
-    : [{ id: "active", name: "Active dataset", kind: "EIS", rows, color: PLOT_COLORS[0] }];
-  const scaleRows = [...rawSeries.flatMap((series) => series.rows), ...(fitRows ?? [])];
-  const domain = getPlotDomain(scaleRows, xKey, yKey, Boolean(logX), equalAspect);
-  const series = rawSeries.map((item) => ({
-    ...item,
-    points: toPoints(item.rows, xKey, yKey, plotArea, domain, Boolean(invertY), Boolean(logX), item.name, item.color),
-  }));
-  const fitPoints = toPoints(
-    fitRows ?? [],
-    xKey,
-    yKey,
-    plotArea,
-    domain,
-    Boolean(invertY),
-    Boolean(logX),
-    "fit",
-    "#d9572a",
+  const pointerFrame = useRef<number | null>(null);
+  const plotData = useMemo(
+    () => createPlotData(rows, comparisonDatasets, fitRows, xKey, yKey, Boolean(invertY), Boolean(logX)),
+    [comparisonDatasets, fitRows, invertY, logX, rows, xKey, yKey],
   );
-  const allPoints = useMemo(() => [...series.flatMap((item) => item.points), ...fitPoints], [series, fitPoints]);
+  const { allPoints, domain, fitLine, fitPoints, plotArea, series, xTicks, yTicks } = plotData;
   const safeFocusedIndex = allPoints.length ? Math.min(focusedIndex, allPoints.length - 1) : 0;
   const inspectedPoint = hoveredPoint ?? allPoints[safeFocusedIndex];
-  const xTicks = createTicks(domain.minX, domain.maxX, 5);
-  const yTicks = createTicks(domain.minY, domain.maxY, 5);
   const xLabel = xKey === "frequency" ? "Frequency" : "Z' / Ohm";
   const yLabel = yKey === "z_abs" ? "|Z| / Ohm" : "Z'' / Ohm";
   const plotId = useMemo(() => `plot-${title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`, [title]);
 
+  useEffect(() => {
+    return () => {
+      if (pointerFrame.current !== null) window.cancelAnimationFrame(pointerFrame.current);
+    };
+  }, []);
+
   function handlePointerMove(event: MouseEvent<SVGSVGElement>) {
     if (!allPoints.length) return;
     const rect = event.currentTarget.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * width;
-    const y = ((event.clientY - rect.top) / rect.height) * height;
-    const nearest = allPoints.reduce((best, point) => {
-      const distance = Math.hypot(point.x - x, point.y - y);
-      return distance < best.distance ? { point, distance } : best;
-    }, { point: allPoints[0], distance: Number.POSITIVE_INFINITY });
-    setHoveredPoint(nearest.distance < 42 ? nearest.point : null);
+    const x = ((event.clientX - rect.left) / rect.width) * PLOT_WIDTH;
+    const y = ((event.clientY - rect.top) / rect.height) * PLOT_HEIGHT;
+    if (pointerFrame.current !== null) window.cancelAnimationFrame(pointerFrame.current);
+    pointerFrame.current = window.requestAnimationFrame(() => {
+      pointerFrame.current = null;
+      const nearest = nearestPoint(allPoints, x, y);
+      setHoveredPoint((current) => (current === nearest ? current : nearest));
+    });
+  }
+
+  function clearHoveredPoint() {
+    if (pointerFrame.current !== null) {
+      window.cancelAnimationFrame(pointerFrame.current);
+      pointerFrame.current = null;
+    }
+    setHoveredPoint((current) => (current === null ? current : null));
   }
 
   function handlePlotKeyDown(event: KeyboardEvent<SVGSVGElement>) {
     if (!allPoints.length) return;
     if (event.key === "ArrowRight" || event.key === "ArrowDown") {
       event.preventDefault();
+      clearHoveredPoint();
       setFocusedIndex((index) => Math.min(index + 1, allPoints.length - 1));
     }
     if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
       event.preventDefault();
+      clearHoveredPoint();
       setFocusedIndex((index) => Math.max(index - 1, 0));
     }
   }
@@ -122,14 +111,14 @@ export function PlotCard({
         )}
       </ul>
       <svg
-        height={height}
+        height={PLOT_HEIGHT}
         preserveAspectRatio="xMidYMin meet"
-        viewBox={`0 0 ${width} ${height}`}
-        width={width}
+        viewBox={`0 0 ${PLOT_WIDTH} ${PLOT_HEIGHT}`}
+        width={PLOT_WIDTH}
         role="img"
         aria-label={`${title} plot`}
         aria-describedby={`${plotId}-inspector`}
-        onMouseLeave={() => setHoveredPoint(null)}
+        onMouseLeave={clearHoveredPoint}
         onMouseMove={handlePointerMove}
         onKeyDown={handlePlotKeyDown}
         tabIndex={0}
@@ -173,13 +162,13 @@ export function PlotCard({
         </text>
         {series.map((item) => (
           <g key={item.id}>
-            <polyline className="data-line" points={toLine(item.points)} style={{ stroke: item.color }} />
-            {item.points.filter((_, index) => index % 10 === 0).map((point) => (
+            <polyline className="data-line" points={item.line} style={{ stroke: item.color }} />
+            {item.markers.map((point) => (
               <circle key={`${item.id}-${point.x}-${point.y}`} cx={point.x} cy={point.y} r="3" style={{ stroke: item.color }} />
             ))}
           </g>
         ))}
-        {fitPoints.length > 0 && <polyline className="fit-line" points={toLine(fitPoints)} />}
+        {fitPoints.length > 0 && <polyline className="fit-line" points={fitLine} />}
         {inspectedPoint && (
           <g className="hover-layer">
             <line className="hover-line" x1={inspectedPoint.x} x2={inspectedPoint.x} y1={plotArea.y} y2={plotArea.y + plotArea.height} />
@@ -197,7 +186,7 @@ export function PlotCard({
       </div>
     </article>
   );
-}
+});
 
 type PlotArea = {
   x: number;
@@ -222,7 +211,56 @@ type PlottedPoint = {
   color: string;
 };
 
-const PLOT_COLORS = ["#0f8f89", "#d9572a", "#4d70b8", "#8a5fbf", "#557c38", "#b44f82"];
+function createPlotData(
+  rows: DatasetRow[],
+  comparisonDatasets: Dataset[],
+  fitRows: DatasetRow[] | undefined,
+  xKey: keyof DatasetRow,
+  yKey: keyof DatasetRow,
+  invertY: boolean,
+  logX: boolean,
+) {
+  const equalAspect = xKey !== "frequency" && !logX;
+  const plotArea = {
+    x: equalAspect ? PLOT_PADDING.left + (AVAILABLE_PLOT_WIDTH - SQUARE_PLOT_SIZE) / 2 : PLOT_PADDING.left,
+    y: PLOT_PADDING.top,
+    width: equalAspect ? SQUARE_PLOT_SIZE : AVAILABLE_PLOT_WIDTH,
+    height: equalAspect ? SQUARE_PLOT_SIZE : AVAILABLE_PLOT_HEIGHT,
+  };
+  const rawSeries = comparisonDatasets.length
+    ? comparisonDatasets.map((dataset, index) => ({
+        id: dataset.id,
+        name: dataset.name,
+        kind: dataset.kind,
+        rows: dataset.rows,
+        color: PLOT_COLORS[index % PLOT_COLORS.length],
+      }))
+    : [{ id: "active", name: "Active dataset", kind: "EIS", rows, color: PLOT_COLORS[0] }];
+  const scaleRows = rawSeries.flatMap((series) => series.rows).concat(fitRows ?? []);
+  const domain = getPlotDomain(scaleRows, xKey, yKey, logX, equalAspect);
+  const series = rawSeries.map((item) => {
+    const points = toPoints(item.rows, xKey, yKey, plotArea, domain, invertY, logX, item.name, item.color);
+    return {
+      ...item,
+      line: toLine(points),
+      markers: points.filter((_, index) => index % 10 === 0),
+      points,
+    };
+  });
+  const fitPoints = toPoints(fitRows ?? [], xKey, yKey, plotArea, domain, invertY, logX, "fit", "#d9572a");
+  const allPoints = series.flatMap((item) => item.points).concat(fitPoints);
+
+  return {
+    allPoints,
+    domain,
+    fitLine: toLine(fitPoints),
+    fitPoints,
+    plotArea,
+    series,
+    xTicks: createTicks(domain.minX, domain.maxX, 5),
+    yTicks: createTicks(domain.minY, domain.maxY, 5),
+  };
+}
 
 function getPlotDomain(
   rows: DatasetRow[],
@@ -231,16 +269,41 @@ function getPlotDomain(
   logX: boolean,
   equalAspect: boolean,
 ): PlotDomain {
-  const usableRows = rows.length ? rows : [{ frequency: 1, z_real: 0, z_imag: 0, z_abs: 0, phase: 0 }];
-  const xs = usableRows.map((row) => transformX(Number(row[xKey]), logX));
-  const ys = usableRows.map((row) => Number(row[yKey]));
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const row of rows) {
+    const x = transformX(Number(row[xKey]), logX);
+    const y = Number(row[yKey]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
   const domain = {
-    minX: Math.min(...xs),
-    maxX: Math.max(...xs),
-    minY: Math.min(...ys),
-    maxY: Math.max(...ys),
+    minX: Number.isFinite(minX) ? minX : 0,
+    maxX: Number.isFinite(maxX) ? maxX : 1,
+    minY: Number.isFinite(minY) ? minY : 0,
+    maxY: Number.isFinite(maxY) ? maxY : 1,
   };
   return equalAspect ? padEqualAspectDomain(domain) : padDomain(domain);
+}
+
+function nearestPoint(points: PlottedPoint[], x: number, y: number) {
+  let nearest = points[0];
+  let shortestDistanceSquared = Number.POSITIVE_INFINITY;
+  for (const point of points) {
+    const distanceX = point.x - x;
+    const distanceY = point.y - y;
+    const distanceSquared = distanceX * distanceX + distanceY * distanceY;
+    if (distanceSquared < shortestDistanceSquared) {
+      nearest = point;
+      shortestDistanceSquared = distanceSquared;
+    }
+  }
+  return shortestDistanceSquared < 42 * 42 ? nearest : null;
 }
 
 function padDomain(domain: PlotDomain): PlotDomain {

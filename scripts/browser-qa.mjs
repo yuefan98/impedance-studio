@@ -92,23 +92,31 @@ try {
   await page.waitForTimeout(700);
 
   await page.getByRole("button", { name: "Models", exact: true }).click();
-  await page.getByLabel("EIS circuit_1").fill("TDS");
+  await page.getByLabel("EIS circuit_1").fill("TDS0");
   await page.getByLabel("2nd-NLEIS circuit_2").fill("R0");
+  await page.getByRole("button", { name: "Validate" }).click();
+  await page.waitForTimeout(700);
+  const invalidValidationText = await page.locator(".model-editor-panel .validation").innerText();
+  if (!invalidValidationText.includes("R0 is not valid in 2nd-NLEIS circuit_2")) {
+    throw new Error(`Expected R0 to be rejected as a 2nd-NLEIS element, got: ${invalidValidationText}`);
+  }
+
+  await page.getByLabel("2nd-NLEIS circuit_2").fill("TDSn0");
   await page.waitForTimeout(200);
   const parameterRows = await page.locator(".model-editor-panel .parameter-table tbody tr").count();
-  if (parameterRows !== 6) {
-    throw new Error(`Expected TDS/R0 to render 6 initial-guess rows, found ${parameterRows}.`);
+  if (parameterRows !== 7) {
+    throw new Error(`Expected TDS0/TDSn0 to render 7 initial-guess rows, found ${parameterRows}.`);
   }
   const initialGuessText = await page.getByLabel("Initial guesses").inputValue();
   const initialGuessCount = initialGuessText.split(",").map((entry) => entry.trim()).filter(Boolean).length;
-  if (initialGuessCount !== 6) {
-    throw new Error(`Expected TDS/R0 initial guess text to contain 6 values, got ${initialGuessText}.`);
+  if (initialGuessCount !== 7) {
+    throw new Error(`Expected TDS0/TDSn0 initial guess text to contain 7 values, got ${initialGuessText}.`);
   }
   await page.getByRole("button", { name: "Validate" }).click();
   await page.waitForTimeout(700);
   const validationText = await page.locator(".model-editor-panel .validation").innerText();
-  if (!validationText.includes("6 estimated parameters")) {
-    throw new Error(`Expected validation to report 6 estimated parameters, got: ${validationText}`);
+  if (!validationText.includes("7 estimated parameters")) {
+    throw new Error(`Expected validation to report 7 estimated parameters, got: ${validationText}`);
   }
 
   await page.screenshot({ path: `${outputDir}/qa-after-workflow.png`, fullPage: true });
