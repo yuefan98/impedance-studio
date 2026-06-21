@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import warnings
 from typing import Any
 
 from .preprocessing import DEFAULT_MAX_F, preprocess_joint_datasets
@@ -39,14 +40,18 @@ def fit_joint_datasets(
         initial_guess=initial_guess,
         constants=constants or None,
     )
-    circuit.fit(
-        frequencies,
-        z1,
-        z2,
-        bounds=bounds,
-        opt="max",
-        max_f=float(preprocessing["max_f"]),
-    )
+    with warnings.catch_warnings():
+        # nleis caps infinite user bounds at 1e10 while normalizing parameters.
+        # The conversion is expected and should not be reported as a production error.
+        warnings.filterwarnings("ignore", message="inf is detected in the bounds", category=UserWarning)
+        circuit.fit(
+            frequencies,
+            z1,
+            z2,
+            bounds=bounds,
+            opt="max",
+            max_f=float(preprocessing["max_f"]),
+        )
     fitted_z1, fitted_z2 = circuit.predict(frequencies, max_f=float(preprocessing["max_f"]))
     parameters = _finite_float_list(circuit.parameters_)
     confidence = _finite_float_list(getattr(circuit, "conf_", None), length=len(parameters))
