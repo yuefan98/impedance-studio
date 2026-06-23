@@ -1,4 +1,5 @@
 import type { CircuitValidation, ModelTemplate } from "@/lib/types";
+import { DOCUMENTED_JOINT_TDS_TEMPLATE } from "@/lib/nleis-model-defaults";
 
 export type Status = "idle" | "loading" | "ready" | "error";
 
@@ -47,10 +48,12 @@ export type ModelDraftUpdate = Partial<Omit<ModelDraft, "sourceModelId" | "dirty
 export function modelToDraft(model?: ModelTemplate): ModelDraft {
   return {
     sourceModelId: model?.id ?? "",
-    name: model?.name ?? "New joint template",
-    circuit1: model?.circuit_1 ?? "RC0",
-    circuit2: model?.circuit_2 ?? "RCn0",
-    initialGuess: model?.initial_guess?.length ? model.initial_guess.join(", ") : "0.84, 15.2, 0.001",
+    name: model?.name ?? DOCUMENTED_JOINT_TDS_TEMPLATE.name,
+    circuit1: model?.circuit_1 ?? DOCUMENTED_JOINT_TDS_TEMPLATE.circuit1,
+    circuit2: model?.circuit_2 ?? DOCUMENTED_JOINT_TDS_TEMPLATE.circuit2,
+    initialGuess: model?.initial_guess?.length
+      ? model.initial_guess.join(", ")
+      : DOCUMENTED_JOINT_TDS_TEMPLATE.initialGuess.join(", "),
     dirty: false,
   };
 }

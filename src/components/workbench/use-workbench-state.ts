@@ -42,7 +42,7 @@ const initialState: WorkbenchState = {
   activeRunItemId: "",
   activeView: "runs",
   search: "",
-  runName: "Joint RC0 / RCn0 fit",
+  runName: "Joint two-electrode TDS fit",
   maxFrequency: 10,
   importText: DEFAULT_IMPORT,
   modelDraft: modelToDraft(),

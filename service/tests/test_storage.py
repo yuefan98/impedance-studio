@@ -47,8 +47,14 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(len(datasets), 20)
         self.assertTrue(all("Part II/data" in dataset["source_name"] for dataset in datasets))
         self.assertGreaterEqual(len(models), 1)
-        self.assertEqual(models[0]["initial_guess"], [0.84, 15.2, 0.001])
-        self.assertEqual(models[0]["shared_parameters"], ["RC0_0 -> RCn0_0", "RC0_1 -> RCn0_1"])
+        self.assertEqual(models[0]["name"], "Two-electrode TDS joint template")
+        self.assertEqual(models[0]["circuit_1"], "L0-R0-TDS0-TDS1")
+        self.assertEqual(models[0]["circuit_2"], "d(TDSn0,TDSn1)")
+        self.assertEqual(len(models[0]["initial_guess"]), 16)
+        self.assertEqual(models[0]["initial_guess"][:2], [1e-7, 1e-3])
+        self.assertEqual(models[0]["initial_guess"][-2:], [0, 0])
+        self.assertEqual(models[0]["bounds"], {})
+        self.assertEqual(models[0]["shared_parameters"][:2], ["TDS0_0 -> TDSn0_0", "TDS0_1 -> TDSn0_1"])
 
     def test_import_manuscript_sample_cycles_by_kind(self):
         project = self.store.create_project("Sample Import")
@@ -82,7 +88,7 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(validation["estimated_parameters"], 3)
         self.assertEqual(validation["parameter_names"], ["RC0_0 / RCn0_0", "RC0_1 / RCn0_1", "RCn0_2"])
 
-    def test_circuit_validation_accepts_impedance_eis_circuit(self):
+    def test_circuit_validation_requires_both_joint_circuits(self):
         validation = self.store.validate_template(
             {
                 "circuit_1": "R0-p(R1,CPE1)",
@@ -92,9 +98,10 @@ class StorageTests(unittest.TestCase):
             }
         )
 
-        self.assertTrue(validation["valid"])
+        self.assertFalse(validation["valid"])
         self.assertEqual(validation["elements_1"], ["R0", "R1", "CPE1"])
         self.assertEqual(validation["estimated_parameters"], 4)
+        self.assertTrue(any("2nd-NLEIS circuit_2 is required" in message for message in validation["errors"]))
 
     def test_circuit_validation_rejects_malformed_eis_circuit(self):
         validation = self.store.validate_template(
@@ -132,7 +139,7 @@ class StorageTests(unittest.TestCase):
         self.assertFalse(second_validation["valid"])
         self.assertIn("R0 is not valid in 2nd-NLEIS circuit_2", second_validation["errors"][0])
 
-    def test_circuit_validation_accepts_second_nleis_only_circuit(self):
+    def test_circuit_validation_rejects_second_nleis_without_linear_pair(self):
         validation = self.store.validate_template(
             {
                 "circuit_1": "",
@@ -142,10 +149,12 @@ class StorageTests(unittest.TestCase):
             }
         )
 
-        self.assertTrue(validation["valid"])
+        self.assertFalse(validation["valid"])
         self.assertEqual(validation["elements_1"], [])
         self.assertEqual(validation["elements_2"], ["RCn0"])
         self.assertEqual(validation["parameter_names"], ["RCn0_0", "RCn0_1", "RCn0_2"])
+        self.assertTrue(any("EIS circuit_1 is required" in message for message in validation["errors"]))
+        self.assertTrue(any("RCn0 requires its matching linear element" in message for message in validation["errors"]))
 
     def test_circuit_validation_shares_tds_pair_parameters(self):
         validation = self.store.validate_template(
@@ -187,6 +196,85 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(validation["parameter_names"][:3], ["L0", "R0", "TDP0_0 / TDPn0_0"])
         self.assertEqual(validation["parameter_names"][7:9], ["TDPn0_5", "TDPn0_6"])
         self.assertEqual(validation["parameter_names"][-2:], ["TDSn0_5", "TDSn0_6"])
+
+    def test_circuit_validation_matches_documented_two_electrode_tds_template(self):
+        validation = self.store.validate_template(
+            {
+                "circuit_1": "L0-R0-TDS0-TDS1",
+                "circuit_2": "d(TDSn0,TDSn1)",
+                "initial_guess": [
+                    1e-7,
+                    1e-3,
+                    5e-3,
+                    1e-3,
+                    10,
+                    1e-2,
+                    100,
+                    10,
+                    0.1,
+                    1e-3,
+                    1e-3,
+                    1e-3,
+                    1e-2,
+                    1000,
+                    0,
+                    0,
+                ],
+                "constants": {},
+            }
+        )
+
+        self.assertTrue(validation["valid"])
+        self.assertEqual(validation["estimated_parameters"], 16)
+        self.assertEqual(validation["parameter_names"][:4], ["L0", "R0", "TDS0_0 / TDSn0_0", "TDS0_1 / TDSn0_1"])
+        self.assertEqual(validation["parameter_names"][7:9], ["TDSn0_5", "TDSn0_6"])
+        self.assertEqual(validation["parameter_names"][-2:], ["TDSn1_5", "TDSn1_6"])
+
+    def test_circuit_validation_supports_documented_rcd_pair(self):
+        validation = self.store.validate_template(
+            {
+                "circuit_1": "RCD0-RCD1",
+                "circuit_2": "d(RCDn0,RCDn1)",
+                "initial_guess": [1] * 12,
+                "constants": {},
+            }
+        )
+
+        self.assertTrue(validation["valid"])
+        self.assertEqual(validation["estimated_parameters"], 12)
+        self.assertEqual(validation["parameter_names"][:4], [
+            "RCD0_0 / RCDn0_0",
+            "RCD0_1 / RCDn0_1",
+            "RCD0_2 / RCDn0_2",
+            "RCD0_3 / RCDn0_3",
+        ])
+
+    def test_circuit_validation_uses_documented_pair_parameter_counts(self):
+        pairs = {
+            "RC": ("RCn", 6),
+            "RCD": ("RCDn", 12),
+            "RCS": ("RCSn", 12),
+            "TP": ("TPn", 8),
+            "TDP": ("TDPn", 14),
+            "TDS": ("TDSn", 14),
+            "TDC": ("TDCn", 14),
+            "TLM": ("TLMn", 16),
+            "TLMS": ("TLMSn", 22),
+            "TLMD": ("TLMDn", 22),
+        }
+        for linear, (nonlinear, expected_parameters) in pairs.items():
+            with self.subTest(linear=linear):
+                validation = self.store.validate_template(
+                    {
+                        "circuit_1": f"{linear}0-{linear}1",
+                        "circuit_2": f"d({nonlinear}0,{nonlinear}1)",
+                        "initial_guess": [1] * expected_parameters,
+                        "constants": {},
+                    }
+                )
+
+                self.assertTrue(validation["valid"])
+                self.assertEqual(validation["estimated_parameters"], expected_parameters)
 
     def test_circuit_validation_rejects_unsupported_paper_group(self):
         validation = self.store.validate_template(

@@ -321,7 +321,7 @@ export function Workbench() {
         circuit_2: state.modelDraft.circuit2,
         initial_guess: guessValues,
         constants: {},
-        bounds: { lower: guessValues.map(() => 0), upper: guessValues.map(() => "inf") },
+        bounds: {},
         shared_parameters: inferSharedParameters(state.modelDraft.circuit1, state.modelDraft.circuit2),
       });
       await refresh();

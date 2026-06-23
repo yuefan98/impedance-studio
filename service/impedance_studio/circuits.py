@@ -23,14 +23,28 @@ IMPEDANCE_ELEMENT_PARAMS = {
 
 NLEIS_EIS_ELEMENT_PARAMS = {
     "RC": 2,
+    "RCD": 4,
+    "RCS": 4,
+    "TP": 3,
     "TDS": 5,
     "TDP": 5,
+    "TDC": 5,
+    "TLM": 6,
+    "TLMS": 8,
+    "TLMD": 8,
 }
 
 NLEIS_SECOND_ELEMENT_PARAMS = {
     "RCn": 3,
+    "RCDn": 6,
+    "RCSn": 6,
+    "TPn": 4,
     "TDSn": 7,
     "TDPn": 7,
+    "TDCn": 7,
+    "TLMn": 8,
+    "TLMSn": 11,
+    "TLMDn": 11,
 }
 
 EIS_ELEMENT_PARAMS = IMPEDANCE_ELEMENT_PARAMS | NLEIS_EIS_ELEMENT_PARAMS
@@ -39,7 +53,18 @@ ALL_ELEMENT_PARAMS = EIS_ELEMENT_PARAMS | SECOND_ELEMENT_PARAMS
 
 EIS_GROUPS = {"p", "s"}
 SECOND_GROUPS = {"p", "s", "d"}
-PAIR_PREFIXES = {"RC": "RCn", "TDS": "TDSn", "TDP": "TDPn"}
+PAIR_PREFIXES = {
+    "RC": "RCn",
+    "RCD": "RCDn",
+    "RCS": "RCSn",
+    "TP": "TPn",
+    "TDS": "TDSn",
+    "TDP": "TDPn",
+    "TDC": "TDCn",
+    "TLM": "TLMn",
+    "TLMS": "TLMSn",
+    "TLMD": "TLMDn",
+}
 
 
 def extract_elements(circuit: str) -> list[str]:
@@ -61,12 +86,14 @@ def validate_circuit_pair(
     errors = [*parsed_1.errors, *parsed_2.errors]
     warnings: list[str] = []
 
-    if not elements_1 and not elements_2:
-        errors.append("At least one EIS or 2nd-NLEIS circuit is required.")
+    if not elements_1:
+        errors.append("EIS circuit_1 is required for an EISandNLEIS fit.")
+    if not elements_2:
+        errors.append("2nd-NLEIS circuit_2 is required for an EISandNLEIS fit.")
     if elements_2 and "d(" not in circuit_2.replace(" ", ""):
         warnings.append("2nd-NLEIS circuits usually use d(cathode, anode) difference grouping.")
 
-    warnings.extend(_pairing_warnings(elements_1, elements_2))
+    errors.extend(_pairing_errors(elements_1, elements_2))
 
     parameter_names = _parameter_names(elements_1, elements_2, constants)
     if initial_guess and len(initial_guess) != len(parameter_names):
@@ -330,13 +357,15 @@ def _matching_second_element(element: str, elements_2: list[str]) -> str | None:
     return None
 
 
-def _pairing_warnings(elements_1: list[str], elements_2: list[str]) -> list[str]:
-    warnings: list[str] = []
+def _pairing_errors(elements_1: list[str], elements_2: list[str]) -> list[str]:
+    errors: list[str] = []
     paired = {match for element in elements_1 if (match := _matching_second_element(element, elements_2))}
     for element in elements_2:
         if element not in paired:
-            warnings.append(f"{element} has no obvious paired EIS element in circuit_1.")
-    return warnings
+            errors.append(
+                f"{element} requires its matching linear element in EIS circuit_1 for an EISandNLEIS fit."
+            )
+    return errors
 
 
 def _element_parts(element: str, allowed_elements: dict[str, int]) -> tuple[str, str] | None:

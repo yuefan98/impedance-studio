@@ -13,6 +13,40 @@ from .importers import generate_synthetic_dataset, parse_autolab_import, parse_t
 from .preprocessing import DEFAULT_MAX_F, preprocess_joint_datasets
 from .sample_data import load_manuscript_samples, manuscript_sample
 
+DOCUMENTED_JOINT_TDS_TEMPLATE_NAME = "Two-electrode TDS joint template"
+DOCUMENTED_JOINT_TDS_CIRCUIT_1 = "L0-R0-TDS0-TDS1"
+DOCUMENTED_JOINT_TDS_CIRCUIT_2 = "d(TDSn0,TDSn1)"
+DOCUMENTED_JOINT_TDS_INITIAL_GUESS = [
+    1e-7,
+    1e-3,
+    5e-3,
+    1e-3,
+    10,
+    1e-2,
+    100,
+    10,
+    0.1,
+    1e-3,
+    1e-3,
+    1e-3,
+    1e-2,
+    1000,
+    0,
+    0,
+]
+DOCUMENTED_JOINT_TDS_SHARED_PARAMETERS = [
+    "TDS0_0 -> TDSn0_0",
+    "TDS0_1 -> TDSn0_1",
+    "TDS0_2 -> TDSn0_2",
+    "TDS0_3 -> TDSn0_3",
+    "TDS0_4 -> TDSn0_4",
+    "TDS1_0 -> TDSn1_0",
+    "TDS1_1 -> TDSn1_1",
+    "TDS1_2 -> TDSn1_2",
+    "TDS1_3 -> TDSn1_3",
+    "TDS1_4 -> TDSn1_4",
+]
+
 
 def default_db_path() -> Path:
     return Path.home() / ".impedance-studio" / "impedance_studio.sqlite3"
@@ -26,6 +60,7 @@ class StudioStore:
         self.connection.row_factory = sqlite3.Row
         self._migrate()
         self._seed_if_empty()
+        self._ensure_documented_joint_template()
 
     def close(self) -> None:
         self.connection.close()
@@ -456,20 +491,17 @@ class StudioStore:
         project = self.create_project("2nd-NLEIS Manuscript Part II")
         for dataset in load_manuscript_samples():
             self._insert_dataset(project["id"], dataset)
-        self.create_model(
-            {
-                "project_id": project["id"],
-                "name": "Joint RC0 / RCn0 template",
-                "scope": "project",
-                "pinned": True,
-                "circuit_1": "RC0",
-                "circuit_2": "RCn0",
-                "initial_guess": [0.84, 15.2, 0.001],
-                "bounds": {"lower": [0, 0, -0.5], "upper": ["inf", "inf", 0.5]},
-                "constants": {},
-                "shared_parameters": ["RC0_0 -> RCn0_0", "RC0_1 -> RCn0_1"],
-            }
-        )
+        self.create_model(_documented_joint_tds_template(project["id"]))
+
+    def _ensure_documented_joint_template(self) -> None:
+        """Add the documented nleis.py two-electrode template without altering user models."""
+        template = self.connection.execute(
+            "select id from models where name = ? and pinned = 1 limit 1",
+            (DOCUMENTED_JOINT_TDS_TEMPLATE_NAME,),
+        ).fetchone()
+        if template:
+            return
+        self.create_model(_documented_joint_tds_template(self._default_project_id()))
 
     def _insert_dataset(self, project_id: str, parsed: dict[str, Any]) -> dict[str, Any]:
         dataset_id = _id()
@@ -510,7 +542,7 @@ class StudioStore:
             (project_id,),
         ).fetchone()
         if not row:
-            return self.create_model({"project_id": project_id, "name": "Default RC pair", "circuit_1": "RC0", "circuit_2": "RCn0"})["id"]
+            return self.create_model(_documented_joint_tds_template(project_id))["id"]
         return row["id"]
 
     def _default_dataset_id(self, project_id: str) -> str:
@@ -596,11 +628,23 @@ def _decode_model(row: sqlite3.Row) -> dict[str, Any]:
     data["validation_summary"] = _loads(data.pop("validation_json"))
     data["plot_series"] = _loads(data.pop("plot_json"))
     data["pinned"] = bool(data["pinned"])
-    if data["circuit_1"] == "RC0" and data["circuit_2"] == "RCn0":
-        data["initial_guess"] = data["initial_guess"][:3]
-        data["shared_parameters"] = ["RC0_0 -> RCn0_0", "RC0_1 -> RCn0_1"]
-        data["bounds"] = {"lower": [0, 0, -0.5], "upper": ["inf", "inf", 0.5]}
     return data
+
+
+def _documented_joint_tds_template(project_id: str) -> dict[str, Any]:
+    """Return nleis.py's documented two-electrode TDS example as a saved model."""
+    return {
+        "project_id": project_id,
+        "name": DOCUMENTED_JOINT_TDS_TEMPLATE_NAME,
+        "scope": "project",
+        "pinned": True,
+        "circuit_1": DOCUMENTED_JOINT_TDS_CIRCUIT_1,
+        "circuit_2": DOCUMENTED_JOINT_TDS_CIRCUIT_2,
+        "initial_guess": list(DOCUMENTED_JOINT_TDS_INITIAL_GUESS),
+        "bounds": {},
+        "constants": {},
+        "shared_parameters": list(DOCUMENTED_JOINT_TDS_SHARED_PARAMETERS),
+    }
 
 
 def _id() -> str:

@@ -153,6 +153,17 @@ The MVP supports two saved model types:
 
 Snapshots can be loaded as completed results or converted into a new template using fitted parameters as the next initial guesses. This follows the `fitted_as_initial` pattern supported by `impedance.py` and `nleis.py`.
 
+### Default joint template
+
+The initial workbench template follows the documented `nleis.EISandNLEIS` two-electrode TDS example:
+
+```python
+circuit_1 = "L0-R0-TDS0-TDS1"
+circuit_2 = "d(TDSn0,TDSn1)"
+```
+
+Its 16 initial guesses are ordered as `L0`, `R0`, the seven shared and nonlinear `TDS0/TDSn0` parameters, then the seven `TDS1/TDSn1` parameters. The workbench keeps this vector order, excludes constant parameters from it, and delegates unspecified parameter bounds to `nleis.py`.
+
 ## Scientific Workbench Design Principles
 
 - Prioritize dense, precise workflows over marketing-style presentation.

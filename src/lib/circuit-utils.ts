@@ -19,14 +19,28 @@ const IMPEDANCE_ELEMENT_PARAMS: Record<string, number> = {
 
 const NLEIS_EIS_ELEMENT_PARAMS: Record<string, number> = {
   RC: 2,
+  RCD: 4,
+  RCS: 4,
+  TP: 3,
   TDS: 5,
   TDP: 5,
+  TDC: 5,
+  TLM: 6,
+  TLMS: 8,
+  TLMD: 8,
 };
 
 const NLEIS_SECOND_ELEMENT_PARAMS: Record<string, number> = {
   RCn: 3,
+  RCDn: 6,
+  RCSn: 6,
+  TPn: 4,
   TDSn: 7,
   TDPn: 7,
+  TDCn: 7,
+  TLMn: 8,
+  TLMSn: 11,
+  TLMDn: 11,
 };
 
 const EIS_ELEMENT_PARAMS = { ...IMPEDANCE_ELEMENT_PARAMS, ...NLEIS_EIS_ELEMENT_PARAMS };
@@ -34,7 +48,18 @@ const SECOND_ELEMENT_PARAMS = NLEIS_SECOND_ELEMENT_PARAMS;
 const ALL_ELEMENT_PARAMS = { ...EIS_ELEMENT_PARAMS, ...SECOND_ELEMENT_PARAMS };
 const EIS_GROUPS = new Set(["p", "s"]);
 const SECOND_GROUPS = new Set(["p", "s", "d"]);
-const PAIR_PREFIXES: Record<string, string> = { RC: "RCn", TDS: "TDSn", TDP: "TDPn" };
+const PAIR_PREFIXES: Record<string, string> = {
+  RC: "RCn",
+  RCD: "RCDn",
+  RCS: "RCSn",
+  TP: "TPn",
+  TDS: "TDSn",
+  TDP: "TDPn",
+  TDC: "TDCn",
+  TLM: "TLMn",
+  TLMS: "TLMSn",
+  TLMD: "TLMDn",
+};
 
 export function validateCircuitPair(
   circuit1: string,
@@ -47,13 +72,12 @@ export function validateCircuitPair(
   const errors = [...parsed1.errors, ...parsed2.errors];
   const warnings: string[] = [];
 
-  if (!parsed1.elements.length && !parsed2.elements.length) {
-    errors.push("At least one EIS or 2nd-NLEIS circuit is required.");
-  }
+  if (!parsed1.elements.length) errors.push("EIS circuit_1 is required for an EISandNLEIS fit.");
+  if (!parsed2.elements.length) errors.push("2nd-NLEIS circuit_2 is required for an EISandNLEIS fit.");
   if (parsed2.elements.length && !circuit2.replace(/\s/g, "").includes("d(")) {
     warnings.push("2nd-NLEIS circuits usually use d(cathode, anode) difference grouping.");
   }
-  warnings.push(...pairingWarnings(parsed1.elements, parsed2.elements));
+  errors.push(...pairingErrors(parsed1.elements, parsed2.elements));
 
   const names = getCircuitParameterNames(circuit1, circuit2, constants);
   if (initialGuess.length && initialGuess.length !== names.length) {
@@ -328,9 +352,11 @@ function matchingSecondElement(element: string, elements2: string[]) {
   }) ?? null;
 }
 
-function pairingWarnings(elements1: string[], elements2: string[]) {
+function pairingErrors(elements1: string[], elements2: string[]) {
   const paired = new Set(elements1.map((element) => matchingSecondElement(element, elements2)).filter(Boolean));
-  return elements2.flatMap((element) => (paired.has(element) ? [] : [`${element} has no obvious paired EIS element in circuit_1.`]));
+  return elements2.flatMap((element) => (
+    paired.has(element) ? [] : [`${element} requires its matching linear element in EIS circuit_1 for an EISandNLEIS fit.`]
+  ));
 }
 
 function elementParts(element: string, allowedElements: Record<string, number>): [string, string] | null {

@@ -31,6 +31,15 @@ try {
   }
 
   await page.getByRole("button", { name: "Models", exact: true }).click();
+  const defaultEisCircuit = await page.getByLabel("EIS circuit_1").inputValue();
+  const defaultSecondCircuit = await page.getByLabel("2nd-NLEIS circuit_2").inputValue();
+  if (defaultEisCircuit !== "L0-R0-TDS0-TDS1" || defaultSecondCircuit !== "d(TDSn0,TDSn1)") {
+    throw new Error(`Expected the documented nleis.py TDS template, got ${defaultEisCircuit} / ${defaultSecondCircuit}.`);
+  }
+  const defaultParameterRows = await page.locator(".model-editor-panel .parameter-table tbody tr").count();
+  if (defaultParameterRows !== 16) {
+    throw new Error(`Expected the documented TDS template to render 16 initial guesses, found ${defaultParameterRows}.`);
+  }
   await page.getByRole("button", { name: "Validate" }).click();
   await page.waitForTimeout(700);
 

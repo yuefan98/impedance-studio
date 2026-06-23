@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateCircuitPair } from "./circuit-utils";
+import { DOCUMENTED_JOINT_TDS_TEMPLATE } from "./nleis-model-defaults";
 import { getSupabaseConfigStatus } from "./supabase-config";
 import type { Dataset, DatasetRow, ModelTemplate, Project, Run } from "./types";
 
@@ -162,7 +163,7 @@ class DemoStore {
 
   createModel(payload: ModelPayload) {
     const now = this.now();
-    const model: ModelTemplate = normalizeModel({
+    const model: ModelTemplate = {
       id: this.id("model"),
       project_id: payload.project_id || this.defaultProjectId(),
       name: payload.name || "Untitled model",
@@ -181,7 +182,7 @@ class DemoStore {
       pinned: Boolean(payload.pinned),
       created_at: now,
       updated_at: now,
-    });
+    };
     this.models.push(model);
     return model;
   }
@@ -323,15 +324,26 @@ class DemoStore {
     }
     this.createModel({
       project_id: project.id,
-      name: "Joint RC0 / RCn0 template",
+      name: DOCUMENTED_JOINT_TDS_TEMPLATE.name,
       scope: "project",
       pinned: true,
-      circuit_1: "RC0",
-      circuit_2: "RCn0",
-      initial_guess: [0.84, 15.2, 0.001],
-      bounds: { lower: [0, 0, -0.5], upper: ["inf", "inf", 0.5] },
+      circuit_1: DOCUMENTED_JOINT_TDS_TEMPLATE.circuit1,
+      circuit_2: DOCUMENTED_JOINT_TDS_TEMPLATE.circuit2,
+      initial_guess: [...DOCUMENTED_JOINT_TDS_TEMPLATE.initialGuess],
+      bounds: {},
       constants: {},
-      shared_parameters: ["RC0_0 -> RCn0_0", "RC0_1 -> RCn0_1"],
+      shared_parameters: [
+        "TDS0_0 -> TDSn0_0",
+        "TDS0_1 -> TDSn0_1",
+        "TDS0_2 -> TDSn0_2",
+        "TDS0_3 -> TDSn0_3",
+        "TDS0_4 -> TDSn0_4",
+        "TDS1_0 -> TDSn1_0",
+        "TDS1_1 -> TDSn1_1",
+        "TDS1_2 -> TDSn1_2",
+        "TDS1_3 -> TDSn1_3",
+        "TDS1_4 -> TDSn1_4",
+      ],
     });
   }
 
@@ -351,7 +363,13 @@ class DemoStore {
   }
 
   private defaultModelId(projectId: string) {
-    return this.listModels(projectId)[0]?.id || this.createModel({ project_id: projectId, name: "Default RC pair", circuit_1: "RC0", circuit_2: "RCn0" }).id;
+    return this.listModels(projectId)[0]?.id || this.createModel({
+      project_id: projectId,
+      name: DOCUMENTED_JOINT_TDS_TEMPLATE.name,
+      circuit_1: DOCUMENTED_JOINT_TDS_TEMPLATE.circuit1,
+      circuit_2: DOCUMENTED_JOINT_TDS_TEMPLATE.circuit2,
+      initial_guess: [...DOCUMENTED_JOINT_TDS_TEMPLATE.initialGuess],
+    }).id;
   }
 
   private defaultDatasetId(projectId: string) {
@@ -571,18 +589,6 @@ function datasetWithRows(dataset: Dataset, rows: DatasetRow[]): Dataset {
 
 function impedanceScale(rows: DatasetRow[]) {
   return Math.max(rows.reduce((sum, item) => sum + Math.abs(item.z_real) + Math.abs(item.z_imag), 0) / rows.length, 1e-9);
-}
-
-function normalizeModel(model: ModelTemplate): ModelTemplate {
-  if (model.circuit_1 === "RC0" && model.circuit_2 === "RCn0") {
-    return {
-      ...model,
-      initial_guess: model.initial_guess.slice(0, 3),
-      shared_parameters: ["RC0_0 -> RCn0_0", "RC0_1 -> RCn0_1"],
-      bounds: { lower: [0, 0, -0.5], upper: ["inf", "inf", 0.5] },
-    };
-  }
-  return model;
 }
 
 function findHeader(headers: string[], candidates: string[]) {
