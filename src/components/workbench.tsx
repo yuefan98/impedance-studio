@@ -435,7 +435,20 @@ export function Workbench() {
             max_f: state.maxFrequency,
             run_name: state.runName,
           });
-      await refresh();
+      if (executionConfig.mode === "local") {
+        await refresh();
+      } else {
+        // Vercel Preview uses an ephemeral API store. Keep the real completed
+        // response visible for this browser session instead of immediately
+        // replacing it with a fresh store on the follow-up GET /runs request.
+        setRuns((current) => [result.run, ...current.filter((run) => run.id !== result.run.id)]);
+        if (result.run.snapshots?.length) {
+          setModels((current) => [
+            ...result.run.snapshots!,
+            ...current.filter((model) => !result.run.snapshots?.some((snapshot) => snapshot.id === model.id)),
+          ]);
+        }
+      }
       dispatch({ type: "selectRun", runId: result.run.id, itemId: result.run.items[0]?.id });
       dispatch({ type: "setView", view: "runs" });
     });
