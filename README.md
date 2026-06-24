@@ -72,19 +72,24 @@ npm run dev
 
 Open the app at `http://localhost:3000`.
 
-By default, the web app talks to the built-in `/api` demo adapter. This is the same path used by the Vercel deployment and is intended for UI testing with bundled public sample data.
+The workbench now has two explicit execution modes:
 
-For private local analysis with SQLite persistence, start the local Python service:
+- **Hosted Vercel fitting** sends the selected data and model to the deployed `/api/fit` Python Function, which runs `nleis.EISandNLEIS`.
+- **Local Python fitting** sends data only to a service on your computer and runs the same code with a Python interpreter you select in the workbench.
+
+The development `/api` preview can display bundled public sample data, but it intentionally does not generate or label simulated parameters as a fit. Use the deployed Vercel app or Local Python mode to run a fit.
+
+For private local analysis with SQLite persistence, start the local Python service with any Python 3 interpreter:
 
 ```bash
 npm run service
 ```
 
-Then point the web app at it:
+In the workbench, choose **Local Python** under **Execution**. It connects to `http://127.0.0.1:8765` by default, discovers Conda environments, and only enables fitting after you select one with `numpy` and `nleis==0.3`. The selected interpreter is stored locally in `~/.impedance-studio/execution.json`; the service starts a worker with that interpreter for each fit.
 
-```bash
-NEXT_PUBLIC_ANALYSIS_API_URL=http://127.0.0.1:8765 npm run dev
-```
+If none is available, select **Create dedicated environment**. After confirmation, it creates `impedance-studio-py311` with Conda and installs [requirements.txt](requirements.txt). This command downloads packages and can take several minutes. To use an existing environment without the UI, set `IMPEDANCE_STUDIO_PYTHON=/path/to/python` when running tests, or select it in the workbench first.
+
+The local service accepts browser requests from `localhost` and the production workbench origin. If you use a Vercel Preview URL, allow it deliberately when starting the service, for example: `IMPEDANCE_STUDIO_ALLOWED_ORIGINS=https://your-preview.vercel.app npm run service`.
 
 By default, local state is stored in:
 
@@ -201,3 +206,5 @@ npm run build
 npm run test:python
 python3 -m compileall service
 ```
+
+`npm run test:python` finds the selected local interpreter (or a ready Conda environment), fails if `nleis==0.3` is unavailable, and executes real synthetic `EISandNLEIS` fits. It does not use a synthetic fit adapter.

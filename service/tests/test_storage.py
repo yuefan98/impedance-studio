@@ -1,42 +1,67 @@
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
-from unittest.mock import patch
 
-from impedance_studio.preprocessing import preprocess_joint_datasets
+import numpy as np
+from nleis import EISandNLEIS
+
 from impedance_studio.storage import StudioStore
-
-
-def fake_joint_fit(eis, second, model, *, max_f):
-    preprocessing = preprocess_joint_datasets(eis, second, max_f=max_f)
-
-    def fitted(dataset):
-        result = {
-            "fit_mode": "joint",
-            "adapter": "test-nleis-adapter",
-            "circuit_1": model["circuit_1"],
-            "circuit_2": model["circuit_2"],
-            "parameters": model["initial_guess"],
-            "confidence": [0.0] * len(model["initial_guess"]),
-            "validation": {"method": "nleis.EISandNLEIS", "chi_square": 0.0, "status": "pass", "message": "test"},
-            "plot_series": {"data": dataset["rows"], "fit": dataset["rows"]},
-        }
-        return {"dataset": dataset, "result": result}
-
-    return {"preprocessing": preprocessing, "eis": fitted(preprocessing["eis"]), "second": fitted(preprocessing["second"])}
 
 
 class StorageTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = StudioStore(Path(self.tmp.name) / "studio.sqlite3")
-        self.fit_patch = patch("impedance_studio.storage.fit_joint_datasets", side_effect=fake_joint_fit)
-        self.fit_patch.start()
 
     def tearDown(self):
-        self.fit_patch.stop()
         self.store.close()
         self.tmp.cleanup()
+
+    def real_fit_fixture(self):
+        project = self.store.create_project("Real fit")
+        frequencies = np.logspace(4, -2, 24)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Simulating circuit based on initial parameters")
+            source = EISandNLEIS("RC0", "RCn0", initial_guess=[1.0, 2.0, 0.01])
+            eis_impedance, second_impedance = source.predict(frequencies, max_f=1e5)
+
+        def parsed(kind, impedance):
+            rows = [
+                {
+                    "frequency": float(frequency),
+                    "z_real": float(value.real),
+                    "z_imag": float(value.imag),
+                    "z_abs": float(abs(value)),
+                    "phase": float(np.angle(value, deg=True)),
+                }
+                for frequency, value in zip(frequencies, impedance)
+            ]
+            return {
+                "name": kind,
+                "kind": kind,
+                "source_name": "real-nleis-synthetic",
+                "point_count": len(rows),
+                "freq_min": float(min(frequencies)),
+                "freq_max": float(max(frequencies)),
+                "temperature_c": 25,
+                "rows": rows,
+            }
+
+        eis = self.store._insert_dataset(project["id"], parsed("EIS", eis_impedance))
+        second = self.store._insert_dataset(project["id"], parsed("2nd-NLEIS", second_impedance))
+        model = self.store.create_model(
+            {
+                "project_id": project["id"],
+                "name": "Real RC fit",
+                "circuit_1": "RC0",
+                "circuit_2": "RCn0",
+                "initial_guess": [0.8, 1.7, 0.008],
+                "bounds": {},
+                "constants": {},
+            }
+        )
+        return project, eis, second, model
 
     def test_seeded_store_has_project_datasets_and_model(self):
         projects = self.store.list_projects()
@@ -311,11 +336,7 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(loaded["initial_guess"], [3, 4])
 
     def test_batch_joint_fit_persists_run_and_snapshot(self):
-        project = self.store.list_projects()[0]
-        datasets = self.store.list_datasets(project["id"])
-        eis = next(dataset for dataset in datasets if dataset["kind"] == "EIS")
-        second = next(dataset for dataset in datasets if dataset["kind"] == "2nd-NLEIS")
-        model = self.store.list_models(project["id"])[0]
+        project, eis, second, model = self.real_fit_fixture()
 
         run = self.store.run_joint_fit(
             {
@@ -332,14 +353,13 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(len(run["items"]), 2)
         self.assertEqual(len(run["snapshots"]), 2)
         self.assertEqual(self.store.list_runs(project["id"])[0]["status"], "completed")
+        self.assertEqual(run["items"][0]["result"]["adapter"], "nleis.EISandNLEIS")
 
     def test_joint_preprocessing_is_used_for_preview_and_fit(self):
-        project = self.store.list_projects()[0]
-        datasets = self.store.list_datasets(project["id"])
-        eis = next(dataset for dataset in datasets if dataset["kind"] == "EIS")
-        second = next(dataset for dataset in datasets if dataset["kind"] == "2nd-NLEIS")
+        project, eis, second, model = self.real_fit_fixture()
         payload = {
             "project_id": project["id"],
+            "model_id": model["id"],
             "eis_dataset_id": eis["id"],
             "second_dataset_id": second["id"],
             "max_f": 10,
@@ -354,6 +374,7 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(run["summary"]["max_f"], 10)
         self.assertEqual(run["items"][0]["result"]["plot_series"]["data"], preprocessing["eis"]["rows"])
         self.assertEqual(run["items"][1]["result"]["plot_series"]["data"], preprocessing["second"]["rows"])
+        self.assertEqual(run["items"][0]["result"]["adapter"], "nleis.EISandNLEIS")
 
     def test_delete_dataset_removes_it_from_project(self):
         project = self.store.list_projects()[0]
@@ -374,12 +395,15 @@ class StorageTests(unittest.TestCase):
         self.assertNotIn(model["id"], [item["id"] for item in self.store.list_models(project["id"])])
 
     def test_delete_project_cascades_local_records_and_keeps_a_project(self):
-        project = self.store.list_projects()[0]
+        project, eis, second, model = self.real_fit_fixture()
         self.store.run_joint_fit(
             {
                 "project_id": project["id"],
-                "model_id": self.store.list_models(project["id"])[0]["id"],
-                "dataset_ids": [self.store.list_datasets(project["id"])[0]["id"]],
+                "model_id": model["id"],
+                "dataset_ids": [eis["id"], second["id"]],
+                "eis_dataset_id": eis["id"],
+                "second_dataset_id": second["id"],
+                "max_f": 1e5,
             }
         )
 

@@ -5,7 +5,7 @@ import sqlite3
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 from .circuits import validate_circuit_pair
 from .fitting import fit_joint_datasets
@@ -300,12 +300,19 @@ class StudioStore:
             }
         return self.create_model(next_model)
 
-    def run_joint_fit(self, payload: dict[str, Any], *, batch: bool = False) -> dict[str, Any]:
+    def run_joint_fit(
+        self,
+        payload: dict[str, Any],
+        *,
+        batch: bool = False,
+        fit_runner: Callable[..., dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         project_id = payload.get("project_id") or self._default_project_id()
         model_id = payload.get("model_id") or self._default_model_id(project_id)
         model = self._get_model(model_id)
         eis_dataset, second_dataset = self._joint_datasets(payload, project_id)
-        analysis = fit_joint_datasets(
+        runner = fit_runner or fit_joint_datasets
+        analysis = runner(
             eis_dataset,
             second_dataset,
             model,

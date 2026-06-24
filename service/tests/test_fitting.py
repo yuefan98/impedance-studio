@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+import warnings
 
 import numpy as np
 
@@ -13,7 +13,7 @@ def dataset(kind, rows):
         "project_id": "project",
         "name": kind,
         "kind": kind,
-        "source_name": "test.csv",
+        "source_name": "synthetic.csv",
         "point_count": len(rows),
         "freq_min": min(frequencies),
         "freq_max": max(frequencies),
@@ -23,47 +23,52 @@ def dataset(kind, rows):
     }
 
 
-def row(frequency, real, imag):
-    return {
-        "frequency": frequency,
-        "z_real": real,
-        "z_imag": imag,
-        "z_abs": abs(complex(real, imag)),
-        "phase": 0,
-    }
-
-
-class FakeCircuit:
-    last_fit = None
-
-    def __init__(self, circuit_1, circuit_2, initial_guess, constants):
-        self.circuit_1 = circuit_1
-        self.circuit_2 = circuit_2
-        self.parameters_ = np.asarray(initial_guess, dtype=float)
-        self.conf_ = np.asarray([0.1] * len(initial_guess))
-
-    def fit(self, frequencies, z1, z2, **kwargs):
-        FakeCircuit.last_fit = {"frequencies": frequencies, "z1": z1, "z2": z2, **kwargs}
-        return self
-
-    def predict(self, frequencies, max_f):
-        return frequencies.astype(complex), frequencies[frequencies < max_f].astype(complex)
+def rows(frequencies, impedance):
+    return [
+        {
+            "frequency": float(frequency),
+            "z_real": float(value.real),
+            "z_imag": float(value.imag),
+            "z_abs": float(abs(value)),
+            "phase": float(np.angle(value, deg=True)),
+        }
+        for frequency, value in zip(frequencies, impedance)
+    ]
 
 
 class FittingTests(unittest.TestCase):
-    def test_real_fit_adapter_uses_nleis_contract_and_max_frequency(self):
-        eis = dataset("EIS", [row(100, 1, 0.1), row(10, 2, -1), row(1, 3, -2)])
-        second = dataset("2nd-NLEIS", [row(100, 10, -1), row(10, 20, -2), row(1, 30, -3)])
-        model = {"circuit_1": "RC0", "circuit_2": "RCn0", "initial_guess": [1, 2, 3], "constants": {}, "bounds": {}}
+    def test_real_nleis_fit_recovers_synthetic_joint_rc_parameters(self):
+        """Exercise nleis itself; a mock adapter is not accepted for fitting tests."""
+        try:
+            from nleis import EISandNLEIS
+        except ModuleNotFoundError as exc:
+            self.fail("nleis==0.3 must be installed in the Python environment used for tests.")
 
-        with patch("impedance_studio.fitting._load_nleis", return_value=(FakeCircuit, np)):
-            analysis = fit_joint_datasets(eis, second, model, max_f=5)
+        frequencies = np.logspace(4, -2, 24)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Simulating circuit based on initial parameters")
+            source = EISandNLEIS("RC0", "RCn0", initial_guess=[1.0, 2.0, 0.01])
+            eis, second = source.predict(frequencies, max_f=1e5)
 
-        self.assertEqual(FakeCircuit.last_fit["max_f"], 5)
-        self.assertEqual(list(FakeCircuit.last_fit["frequencies"]), [10.0, 1.0])
-        self.assertEqual(analysis["eis"]["result"]["adapter"], "nleis.EISandNLEIS")
-        self.assertEqual([row["frequency"] for row in analysis["second"]["result"]["plot_series"]["data"]], [1.0])
-        self.assertEqual(analysis["eis"]["result"]["parameters"], [1.0, 2.0, 3.0])
+        analysis = fit_joint_datasets(
+            dataset("EIS", rows(frequencies, eis)),
+            dataset("2nd-NLEIS", rows(frequencies, second)),
+            {
+                "circuit_1": "RC0",
+                "circuit_2": "RCn0",
+                "initial_guess": [0.8, 1.7, 0.008],
+                "constants": {},
+                "bounds": {},
+            },
+            max_f=1e5,
+        )
+
+        result = analysis["eis"]["result"]
+        self.assertEqual(result["adapter"], "nleis.EISandNLEIS")
+        self.assertEqual(len(result["parameters"]), 3)
+        np.testing.assert_allclose(result["parameters"], [1.0, 2.0, 0.01], rtol=1e-3, atol=1e-7)
+        self.assertGreater(len(result["plot_series"]["fit"]), 0)
+        self.assertGreater(len(analysis["second"]["result"]["plot_series"]["fit"]), 0)
 
 
 if __name__ == "__main__":

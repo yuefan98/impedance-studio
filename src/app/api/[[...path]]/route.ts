@@ -69,7 +69,9 @@ function json(payload: unknown, status = 200) {
 }
 
 async function runJointFit(request: Request, store: ReturnType<typeof demoStore>, body: Record<string, unknown>) {
-  if (!process.env.VERCEL && !process.env.ANALYSIS_ENGINE_URL) return undefined;
+  if (!process.env.VERCEL && !process.env.ANALYSIS_ENGINE_URL) {
+    throw new Error("This browser preview does not run scientific fits. Select Local Python mode or use the deployed Vercel fitting service.");
+  }
 
   const endpoint = process.env.ANALYSIS_ENGINE_URL || new URL("/api/fit", request.url).toString();
   const response = await fetch(endpoint, {

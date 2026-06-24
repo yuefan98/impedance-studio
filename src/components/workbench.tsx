@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { analysisClient } from "@/lib/analysis-client";
-import type { CircuitValidation, Dataset, Health, JointPreprocessing, ModelTemplate, Project, Run } from "@/lib/types";
+import { analysisClient, configureExecution, getExecutionConfig, type ExecutionConfig } from "@/lib/analysis-client";
+import type { CircuitValidation, Dataset, Health, JointPreprocessing, LocalExecution, ModelTemplate, Project, Run } from "@/lib/types";
 import { ConfirmDialog, type ConfirmRequest } from "./workbench/common";
 import { DatasetLibrary } from "./workbench/dataset-library";
+import { ExecutionSettings } from "./workbench/execution-settings";
 import { FitSetup } from "./workbench/fit-setup";
 import { ModelEditor } from "./workbench/model-editor";
 import { ModelLibrary } from "./workbench/model-library";
@@ -22,6 +23,8 @@ export function Workbench() {
   const [error, setError] = useState<string | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
+  const [executionConfig, setExecutionConfig] = useState<ExecutionConfig>(() => getExecutionConfig());
+  const [localExecution, setLocalExecution] = useState<LocalExecution | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [models, setModels] = useState<ModelTemplate[]>([]);
@@ -52,7 +55,7 @@ export function Workbench() {
     activeProjectIdRef.current = state.activeProjectId;
   }, [state.activeProjectId]);
 
-  const refresh = useCallback(async (projectIdOverride?: string) => {
+  const refresh = useCallback(async (projectIdOverride?: string, modeOverride = executionConfig.mode) => {
     setStatus("loading");
     setError(null);
     try {
@@ -61,16 +64,18 @@ export function Workbench() {
         analysisClient.projects(),
       ]);
       const nextProjectId = projectIdOverride || activeProjectIdRef.current || projectResult.projects[0]?.id || "";
-      const [datasetResult, modelResult, runResult] = await Promise.all([
+      const [datasetResult, modelResult, runResult, executionResult] = await Promise.all([
         analysisClient.datasets(nextProjectId),
         analysisClient.models(nextProjectId),
         analysisClient.runs(nextProjectId),
+        modeOverride === "local" ? analysisClient.localExecution() : Promise.resolve(null),
       ]);
       setHealth(healthResult);
       setProjects(projectResult.projects);
       setDatasets(datasetResult.datasets);
       setModels(modelResult.models);
       setRuns(runResult.runs);
+      setLocalExecution(executionResult?.execution ?? null);
       dispatch({
         type: "hydrate",
         payload: {
@@ -87,12 +92,14 @@ export function Workbench() {
       setStatus("error");
       setError(caught instanceof Error ? caught.message : "Unable to reach local analysis service.");
     }
-  }, [dispatch]);
+  }, [dispatch, executionConfig.mode]);
 
   useEffect(() => {
     if (hasStartedInitialRefresh.current) return;
     hasStartedInitialRefresh.current = true;
-    void refresh();
+    const savedExecutionConfig = getExecutionConfig();
+    setExecutionConfig(savedExecutionConfig);
+    void refresh(undefined, savedExecutionConfig.mode);
   }, [refresh]);
 
   useEffect(() => {
@@ -142,6 +149,58 @@ export function Workbench() {
     } finally {
       setBusyAction(null);
     }
+  }
+
+  async function changeExecutionMode(mode: "hosted" | "local") {
+    const next = { ...executionConfig, mode };
+    configureExecution(next);
+    setExecutionConfig(next);
+    healthRef.current = null;
+    setLocalExecution(null);
+    await refresh(undefined, mode);
+  }
+
+  function changeLocalApiBase(localApiBase: string) {
+    const next = { ...executionConfig, localApiBase };
+    configureExecution(next);
+    setExecutionConfig(next);
+    healthRef.current = null;
+  }
+
+  async function refreshLocalEnvironments() {
+    await runAction("execution", async () => {
+      const result = await analysisClient.localExecution();
+      setLocalExecution(result.execution);
+      healthRef.current = null;
+      const healthResult = await analysisClient.health();
+      setHealth(healthResult);
+      healthRef.current = healthResult;
+    });
+  }
+
+  async function selectLocalEnvironment(executable: string) {
+    await runAction("execution", async () => {
+      const result = await analysisClient.selectLocalEnvironment(executable);
+      setLocalExecution(result.execution);
+      healthRef.current = null;
+      await refresh();
+    });
+  }
+
+  function confirmCreateLocalEnvironment() {
+    requestConfirm({
+      title: "Create a dedicated Python environment?",
+      message: "This runs Conda locally to create impedance-studio-py311 and installs requirements.txt. It may download packages and can take several minutes.",
+      confirmLabel: "Create environment",
+      onConfirm: async () => {
+        await runAction("execution", async () => {
+          const result = await analysisClient.createLocalEnvironment(localExecution?.default_environment_name ?? "impedance-studio-py311");
+          setLocalExecution(result.execution);
+          healthRef.current = null;
+          await refresh();
+        });
+      },
+    });
   }
 
   function requestConfirm(request: ConfirmRequest) {
@@ -387,9 +446,12 @@ export function Workbench() {
       <main className="app-shell offline">
         <section className="offline-panel">
           <div className="brand-mark">IS</div>
-          <h1>Start the local analysis service</h1>
+          <h1>{executionConfig.mode === "local" ? "Start the local analysis service" : "Hosted fitting is unavailable in this preview"}</h1>
           <p>{error}</p>
-          <code>PYTHONPATH=service python3 -m impedance_studio.server</code>
+          {executionConfig.mode === "local" && <code>PYTHONPATH=service python3 -m impedance_studio.server</code>}
+          <button onClick={() => void changeExecutionMode(executionConfig.mode === "local" ? "hosted" : "local")}>
+            Use {executionConfig.mode === "local" ? "hosted Vercel" : "local Python"} mode
+          </button>
           <button onClick={() => void refresh()}>Retry connection</button>
           <span>Expected API: {analysisClient.apiBase}</span>
         </section>
@@ -441,6 +503,21 @@ export function Workbench() {
               activeModel={activeModel}
               busyAction={busyAction}
               datasets={datasets}
+              execution={
+                <ExecutionSettings
+                  busy={busyAction === "execution"}
+                  health={health}
+                  localApiBase={executionConfig.localApiBase}
+                  localExecution={localExecution}
+                  mode={executionConfig.mode}
+                  onCreateEnvironment={confirmCreateLocalEnvironment}
+                  onLocalApiBaseChange={changeLocalApiBase}
+                  onModeChange={(mode) => void changeExecutionMode(mode)}
+                  onRefreshEnvironments={() => void refreshLocalEnvironments()}
+                  onSelectEnvironment={(executable) => void selectLocalEnvironment(executable)}
+                />
+              }
+              health={health}
               eisDatasetId={state.eisDatasetId}
               includedDatasetIds={state.includedDatasetIds}
               maxFrequency={state.maxFrequency}

@@ -85,7 +85,7 @@ class DemoStore {
     const realEngineEnabled = Boolean(process.env.VERCEL || process.env.ANALYSIS_ENGINE_URL);
     return {
       ok: true,
-      mode: realEngineEnabled ? "vercel-nleis" : "local-demo",
+      mode: realEngineEnabled ? "hosted-vercel-nleis" : "preview-no-fit",
       database: "ephemeral Vercel demo store",
       supabase: getSupabaseConfigStatus(),
       optional_libraries: { impedance: realEngineEnabled, nleis: realEngineEnabled },
@@ -250,17 +250,13 @@ class DemoStore {
   }
 
   runJointFit(payload: RunPayload, batch = false, analysis?: JointFitAnalysis) {
+    if (!analysis) {
+      throw new Error("A joint fit requires an nleis.EISandNLEIS analysis result from the selected execution engine.");
+    }
     const projectId = payload.project_id || this.defaultProjectId();
     const model = this.requireModel(payload.model_id || this.defaultModelId(projectId));
-    const input = this.jointFitInput(payload);
-    const preprocessing = analysis?.preprocessing ?? preprocessJointDatasets(input.eis_dataset, input.second_dataset, input.max_f);
-    const fitScale = impedanceScale([...preprocessing.eis.rows, ...preprocessing.second.rows]);
-    const fittedDatasets = analysis
-      ? [analysis.eis, analysis.second]
-      : [preprocessing.eis, preprocessing.second].map((dataset) => ({
-          dataset,
-          result: fitResult(dataset, model, fitScale, preprocessing.method),
-        }));
+    const preprocessing = analysis.preprocessing;
+    const fittedDatasets = [analysis.eis, analysis.second];
     const now = this.now();
     const runId = this.id("run");
     const snapshots: ModelTemplate[] = [];
@@ -271,7 +267,7 @@ class DemoStore {
         dataset_id: dataset.id,
         status: "completed",
         progress: 100,
-        message: analysis ? "Joint fit completed with nleis.EISandNLEIS" : "Joint fit completed in local demo adapter",
+        message: "Joint fit completed with nleis.EISandNLEIS",
         result,
       };
       snapshots.push(
@@ -530,30 +526,6 @@ function row(frequency: number, zReal: number, zImag: number): DatasetRow {
   };
 }
 
-function fitResult(dataset: Dataset, model: ModelTemplate, scale = impedanceScale(dataset.rows), preprocessingMethod = "") {
-  const base = model.initial_guess.length ? model.initial_guess : [scale, scale / 2, 0.001];
-  const parameters = base.map((value, index) => Number((value * (0.98 + 0.01 * index)).toFixed(8)));
-  const fit = dataset.rows.map((item, index) => {
-    const drift = 1 + 0.015 * Math.sin((index / Math.max(dataset.rows.length - 1, 1)) * Math.PI);
-    return row(item.frequency, item.z_real * drift, item.z_imag * (2 - drift));
-  });
-  return {
-    fit_mode: "joint",
-    adapter: `hosted-demo-adapter; ${preprocessingMethod}`.replace(/; $/, ""),
-    circuit_1: model.circuit_1,
-    circuit_2: model.circuit_2,
-    parameters,
-    confidence: parameters.map((value) => Number(Math.max(Math.abs(value) * 0.025, 1e-8).toFixed(8))),
-    validation: {
-      method: "MM",
-      chi_square: Number((0.0008 + scale * 1e-5).toFixed(8)),
-      status: "pass",
-      message: "Fitted from data_truncation-compatible rows in Vercel hosted demo mode.",
-    },
-    plot_series: { data: dataset.rows, fit },
-  };
-}
-
 function preprocessJointDatasets(eis: Dataset, second: Dataset, maxF: number) {
   if (!Number.isFinite(maxF) || maxF <= 0) throw new Error("max_f must be a finite positive frequency in Hz.");
   const secondByFrequency = new Map(second.rows.map((item) => [item.frequency, item]));
@@ -585,10 +557,6 @@ function datasetWithRows(dataset: Dataset, rows: DatasetRow[]): Dataset {
     freq_max: Math.max(...rows.map((row) => row.frequency)),
     rows,
   };
-}
-
-function impedanceScale(rows: DatasetRow[]) {
-  return Math.max(rows.reduce((sum, item) => sum + Math.abs(item.z_real) + Math.abs(item.z_imag), 0) / rows.length, 1e-9);
 }
 
 function findHeader(headers: string[], candidates: string[]) {

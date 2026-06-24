@@ -4,6 +4,7 @@ import { mkdir } from "node:fs/promises";
 const chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const baseUrl = process.env.QA_BASE_URL ?? "http://127.0.0.1:3000";
 const outputDir = process.env.QA_OUTPUT_DIR ?? "tmp";
+const requireRealFit = process.env.QA_REQUIRE_REAL_FIT === "1";
 
 await mkdir(outputDir, { recursive: true });
 
@@ -21,6 +22,18 @@ try {
 
   await page.goto(baseUrl, { waitUntil: "networkidle" });
   await page.screenshot({ path: `${outputDir}/qa-desktop.png`, fullPage: true });
+
+  const executionMode = await page.getByLabel("Fitting mode").inputValue();
+  if (executionMode !== "hosted") {
+    throw new Error(`Expected hosted execution mode by default, received ${executionMode}.`);
+  }
+  const runButton = page.getByRole("button", { name: "Run selected fit" });
+  if (requireRealFit && !await runButton.isEnabled()) {
+    throw new Error("A real-fit QA target must expose the deployed nleis fitting engine.");
+  }
+  if (!requireRealFit && await runButton.isEnabled()) {
+    throw new Error("The browser preview must not enable a simulated scientific fit.");
+  }
 
   await page.getByLabel("2nd-NLEIS max f (Hz)").fill("1");
   await page.getByText("nleis.py preprocessing / max f 1.00 Hz", { exact: true }).waitFor();
@@ -43,19 +56,21 @@ try {
   await page.getByRole("button", { name: "Validate" }).click();
   await page.waitForTimeout(700);
 
-  await page.getByRole("button", { name: "Data", exact: true }).click();
-  await page.getByRole("button", { name: "Import as EIS" }).click();
-  await page.waitForTimeout(700);
+  if (requireRealFit) {
+    await page.getByRole("button", { name: "Data", exact: true }).click();
+    await page.getByRole("button", { name: "Import as EIS" }).click();
+    await page.waitForTimeout(700);
 
-  await page.getByRole("button", { name: "Runs", exact: true }).click();
-  await page.getByRole("button", { name: "Run selected fit" }).click();
-  await page.waitForTimeout(700);
-  const preprocessingInspector = await page.locator(".inspector-panel").innerText();
-  if (!preprocessingInspector.includes("2nd-NLEIS max f") || !preprocessingInspector.includes("1.00 Hz")) {
-    throw new Error(`Expected the run inspector to report the applied max_f, got: ${preprocessingInspector}`);
+    await page.getByRole("button", { name: "Runs", exact: true }).click();
+    await runButton.click();
+    await page.waitForTimeout(700);
+    const preprocessingInspector = await page.locator(".inspector-panel").innerText();
+    if (!preprocessingInspector.includes("2nd-NLEIS max f") || !preprocessingInspector.includes("1.00 Hz")) {
+      throw new Error(`Expected the run inspector to report the applied max_f, got: ${preprocessingInspector}`);
+    }
+    await page.getByRole("button", { name: "Run batch joint fit" }).click();
+    await page.waitForTimeout(700);
   }
-  await page.getByRole("button", { name: "Run batch joint fit" }).click();
-  await page.waitForTimeout(700);
   const sliderCount = await page.locator('input[type="range"]').count();
   if (sliderCount !== 0) throw new Error(`Expected no plot range sliders, found ${sliderCount}.`);
 
@@ -143,6 +158,7 @@ try {
       {
         ok: true,
         baseUrl,
+        requireRealFit,
         screenshots: [
           `${outputDir}/qa-desktop.png`,
           `${outputDir}/qa-after-workflow.png`,

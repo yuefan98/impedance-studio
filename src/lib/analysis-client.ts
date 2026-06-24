@@ -1,9 +1,36 @@
-import type { CircuitValidation, Dataset, Health, JointPreprocessing, ModelTemplate, Project, Run } from "./types";
+import type { CircuitValidation, Dataset, ExecutionMode, Health, JointPreprocessing, LocalExecution, ModelTemplate, Project, Run } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_ANALYSIS_API_URL ?? "/api";
+const HOSTED_API_BASE = process.env.NEXT_PUBLIC_ANALYSIS_API_URL ?? "/api";
+const DEFAULT_LOCAL_API_BASE = "http://127.0.0.1:8765";
+const EXECUTION_MODE_KEY = "impedance-studio.execution-mode";
+const LOCAL_API_BASE_KEY = "impedance-studio.local-api-base";
+
+let apiBase = HOSTED_API_BASE;
+
+export type ExecutionConfig = {
+  mode: ExecutionMode;
+  localApiBase: string;
+};
+
+export function getExecutionConfig(): ExecutionConfig {
+  if (typeof window === "undefined") return { mode: "hosted", localApiBase: DEFAULT_LOCAL_API_BASE };
+  const mode = window.localStorage.getItem(EXECUTION_MODE_KEY) === "local" ? "local" : "hosted";
+  const localApiBase = window.localStorage.getItem(LOCAL_API_BASE_KEY) || DEFAULT_LOCAL_API_BASE;
+  apiBase = mode === "local" ? localApiBase : HOSTED_API_BASE;
+  return { mode, localApiBase };
+}
+
+export function configureExecution(config: ExecutionConfig) {
+  const localApiBase = normaliseApiBase(config.localApiBase || DEFAULT_LOCAL_API_BASE);
+  apiBase = config.mode === "local" ? localApiBase : HOSTED_API_BASE;
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(EXECUTION_MODE_KEY, config.mode);
+    window.localStorage.setItem(LOCAL_API_BASE_KEY, localApiBase);
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${apiBase}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -18,8 +45,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const analysisClient = {
-  apiBase: API_BASE,
+  get apiBase() {
+    return apiBase;
+  },
   health: () => request<{ ok: true } & Health>("/health"),
+  localExecution: () => request<{ execution: LocalExecution }>("/execution"),
+  selectLocalEnvironment: (executable: string) =>
+    request<{ execution: LocalExecution }>("/execution/select", {
+      method: "POST",
+      body: JSON.stringify({ executable }),
+    }),
+  createLocalEnvironment: (name: string) =>
+    request<{ execution: LocalExecution }>("/execution/create", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
   projects: () => request<{ projects: Project[] }>("/projects"),
   createProject: (body: { name: string }) =>
     request<{ project: Project }>("/projects", {
@@ -111,5 +151,9 @@ export const analysisClient = {
     request<{ run: Run }>("/runs/batch-joint-fit", {
       method: "POST",
       body: JSON.stringify(body),
-    }),
+  }),
 };
+
+function normaliseApiBase(value: string) {
+  return value.trim().replace(/\/+$/, "") || DEFAULT_LOCAL_API_BASE;
+}

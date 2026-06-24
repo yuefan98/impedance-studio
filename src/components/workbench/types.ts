@@ -8,6 +8,7 @@ export type WorkbenchView = "runs" | "database" | "models";
 export type BusyAction =
   | "batch"
   | "dataset"
+  | "execution"
   | "import"
   | "load"
   | "model"

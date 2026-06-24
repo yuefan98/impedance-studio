@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "service": "PYTHONPATH=service python3 -m impedance_studio.server",
-    "test:python": "PYTHONPATH=service python3 -m unittest discover -s service/tests",
+    "test:python": "node scripts/run-python-tests.mjs",
     "build": "next build",
     "lint": "tsc --noEmit",
     "start": "next start"

@@ -124,3 +124,23 @@ export type Health = {
   };
   optional_libraries: Record<string, boolean>;
 };
+
+export type ExecutionMode = "hosted" | "local";
+
+export type LocalPythonEnvironment = {
+  executable: string;
+  label: string;
+  ready: boolean;
+  detail: string;
+  python_version: string | null;
+  nleis_version: string | null;
+};
+
+export type LocalExecution = {
+  mode: "local-python";
+  selected_executable: string | null;
+  environments: LocalPythonEnvironment[];
+  can_create: boolean;
+  default_environment_name: string;
+  requirements_path: string;
+};

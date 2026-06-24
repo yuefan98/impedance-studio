@@ -1,10 +1,13 @@
-import type { Dataset, ModelTemplate } from "@/lib/types";
+import type { Dataset, Health, ModelTemplate } from "@/lib/types";
+import type { ReactNode } from "react";
 import { PanelHeader, ParameterSummary, StatusBadge } from "./common";
 
 export function FitSetup({
   activeModel,
   busyAction,
   datasets,
+  execution,
+  health,
   eisDatasetId,
   includedDatasetIds,
   maxFrequency,
@@ -23,6 +26,8 @@ export function FitSetup({
   activeModel?: ModelTemplate;
   busyAction: string | null;
   datasets: Dataset[];
+  execution: ReactNode;
+  health: Health | null;
   eisDatasetId: string;
   includedDatasetIds: string[];
   maxFrequency: number;
@@ -48,7 +53,7 @@ export function FitSetup({
       includedDatasetIds.includes(eisDataset.id) &&
       includedDatasetIds.includes(secondDataset.id),
   );
-  const canRun = Boolean(selectedPairIncluded && activeModel && maxFrequency > 0);
+  const canRun = Boolean(selectedPairIncluded && activeModel && maxFrequency > 0 && health?.optional_libraries.nleis);
 
   return (
     <section className="panel config-panel">
@@ -57,6 +62,7 @@ export function FitSetup({
         <span>Run name</span>
         <input value={runName} onChange={(event) => onRunNameChange(event.target.value)} />
       </label>
+      {execution}
       <label className="field-readout">
         <span>2nd-NLEIS max f (Hz)</span>
         <input
