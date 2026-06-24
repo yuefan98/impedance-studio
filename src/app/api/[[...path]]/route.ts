@@ -73,14 +73,21 @@ async function runJointFit(request: Request, store: ReturnType<typeof demoStore>
     throw new Error("This browser preview does not run scientific fits. Select Local Python mode or use the deployed Vercel fitting service.");
   }
 
+  const usesInternalEngine = !process.env.ANALYSIS_ENGINE_URL;
   const endpoint = process.env.ANALYSIS_ENGINE_URL || new URL("/api/fit", request.url).toString();
   const response = await fetch(endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(usesInternalEngine && request.headers.get("cookie") ? { cookie: request.headers.get("cookie") as string } : {}),
+    },
     body: JSON.stringify(store.jointFitInput(body)),
     cache: "no-store",
   });
-  const payload = (await response.json()) as { analysis?: JointFitAnalysis; error?: string };
+  const contentType = response.headers.get("content-type") || "";
+  const payload = contentType.includes("application/json")
+    ? (await response.json()) as { analysis?: JointFitAnalysis; error?: string }
+    : { error: `The nleis fitting service returned ${response.status} without a JSON response.` };
   if (!response.ok || !payload.analysis) {
     throw new Error(payload.error || "The nleis fitting service did not return an analysis.");
   }
