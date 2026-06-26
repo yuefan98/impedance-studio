@@ -13,14 +13,20 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/impedance-studio-matplotlib")
 def main() -> None:
     try:
         payload = _read_payload()
-        from .fitting import fit_joint_datasets
+        from .fitting import fit_eis_dataset, fit_joint_datasets
 
-        analysis = fit_joint_datasets(
-            payload["eis_dataset"],
-            payload["second_dataset"],
-            payload["model"],
-            max_f=payload.get("max_f", 10),
-        )
+        if "second_dataset" in payload:
+            analysis = fit_joint_datasets(
+                payload["eis_dataset"],
+                payload["second_dataset"],
+                payload["model"],
+                max_f=payload.get("max_f", 10),
+            )
+        else:
+            analysis = fit_eis_dataset(
+                payload["eis_dataset"],
+                payload["model"],
+            )
         _write({"analysis": analysis})
     except Exception as exc:
         _write({"error": str(exc), "traceback": traceback.format_exc()})

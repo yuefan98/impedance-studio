@@ -7,7 +7,7 @@ from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
 from .execution import LocalExecutionManager
-from .fitting import fit_joint_datasets
+from .fitting import fit_eis_dataset, fit_joint_datasets
 from .storage import StudioStore, default_db_path
 
 
@@ -75,6 +75,8 @@ class StudioHandler(BaseHTTPRequestHandler):
                 self._send_json({"run": self.store.run_joint_fit(payload, batch=False, fit_runner=self._run_local_fit)})
             elif path == "/runs/batch-joint-fit":
                 self._send_json({"run": self.store.run_joint_fit(payload, batch=True, fit_runner=self._run_local_fit)})
+            elif path == "/runs/eis-fit":
+                self._send_json({"run": self.store.run_eis_fit(payload, fit_runner=self._run_local_eis_fit)})
             else:
                 self._send_json({"error": f"not found: {path}"}, status=404)
         except Exception as exc:
@@ -105,6 +107,12 @@ class StudioHandler(BaseHTTPRequestHandler):
         return self.execution.fit(
             {"eis_dataset": eis_dataset, "second_dataset": second_dataset, "model": model, "max_f": max_f},
             fit_joint_datasets,
+        )
+
+    def _run_local_eis_fit(self, eis_dataset: dict[str, Any], model: dict[str, Any]) -> dict[str, Any]:
+        return self.execution.fit(
+            {"eis_dataset": eis_dataset, "model": model},
+            fit_eis_dataset,
         )
 
     def _path_query(self) -> tuple[str, dict[str, list[str]]]:

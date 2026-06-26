@@ -70,6 +70,28 @@ export function filterModels(models: ModelTemplate[], search: string) {
   );
 }
 
+export function datasetPairKey(dataset: Dataset) {
+  const name = (dataset.name || dataset.source_name).trim().toLowerCase();
+  for (const suffix of ["_2nd-nleis", "-2nd-nleis", " 2nd-nleis", "_eis", "-eis", " eis"]) {
+    if (name.endsWith(suffix)) return name.slice(0, -suffix.length);
+  }
+  return name;
+}
+
+export function matchedDatasetPairs(datasets: Dataset[]) {
+  const secondByKey = new Map(
+    datasets
+      .filter((dataset) => dataset.kind === "2nd-NLEIS")
+      .map((dataset) => [datasetPairKey(dataset), dataset]),
+  );
+  return datasets
+    .filter((dataset) => dataset.kind === "EIS")
+    .flatMap((eis) => {
+      const second = secondByKey.get(datasetPairKey(eis));
+      return second ? [{ eis, second }] : [];
+    });
+}
+
 export function summarizeImport(text: string) {
   const lines = text
     .split(/\r?\n/)

@@ -1,6 +1,6 @@
 import { useMemo, useReducer } from "react";
 import type { Dataset, ModelTemplate, Project, Run } from "@/lib/types";
-import { DEFAULT_IMPORT, parseGuessEntries, parseGuessValues } from "./utils";
+import { DEFAULT_IMPORT, datasetPairKey, matchedDatasetPairs, parseGuessEntries, parseGuessValues } from "./utils";
 import { type ModelDraftUpdate, type WorkbenchState, type WorkbenchView, modelToDraft } from "./types";
 
 type HydratePayload = {
@@ -120,7 +120,11 @@ function hydrateState(state: WorkbenchState, payload: HydratePayload): Workbench
   const { datasets, models, projects, runs } = payload;
   const activeProjectId = payload.projectId || state.activeProjectId || projects[0]?.id || "";
   const firstEis = datasets.find((dataset) => dataset.kind === "EIS");
-  const firstSecond = datasets.find((dataset) => dataset.kind === "2nd-NLEIS");
+  const firstSecond = firstEis
+    ? datasets.find((dataset) => dataset.kind === "2nd-NLEIS" && datasetPairKey(dataset) === datasetPairKey(firstEis)) ??
+      datasets.find((dataset) => dataset.kind === "2nd-NLEIS")
+    : datasets.find((dataset) => dataset.kind === "2nd-NLEIS");
+  const allPairDatasetIds = matchedDatasetPairs(datasets).flatMap(({ eis, second }) => [eis.id, second.id]);
 
   const activeDatasetId = datasets.some((dataset) => dataset.id === state.activeDatasetId)
     ? state.activeDatasetId
@@ -128,7 +132,7 @@ function hydrateState(state: WorkbenchState, payload: HydratePayload): Workbench
   const includedDatasetIds = state.includedDatasetIds.filter((id) => datasets.some((dataset) => dataset.id === id));
   const nextIncludedDatasetIds = includedDatasetIds.length
     ? includedDatasetIds
-    : ([firstEis?.id, firstSecond?.id].filter(Boolean) as string[]);
+    : (allPairDatasetIds.length ? allPairDatasetIds : ([firstEis?.id, firstSecond?.id].filter(Boolean) as string[]));
   const eisDatasetId = datasets.some((dataset) => dataset.id === state.eisDatasetId && dataset.kind === "EIS")
     ? state.eisDatasetId
     : firstEis?.id || "";

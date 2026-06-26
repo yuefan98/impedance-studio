@@ -18,7 +18,7 @@ matplotlib_cache = Path("/tmp/impedance-studio-matplotlib")
 matplotlib_cache.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("MPLCONFIGDIR", str(matplotlib_cache))
 
-from impedance_studio.fitting import fit_joint_datasets
+from impedance_studio.fitting import fit_eis_dataset, fit_joint_datasets
 
 
 class handler(BaseHTTPRequestHandler):
@@ -27,12 +27,18 @@ class handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         try:
             payload = self._read_json()
-            analysis = fit_joint_datasets(
-                payload["eis_dataset"],
-                payload["second_dataset"],
-                payload["model"],
-                max_f=payload.get("max_f", 10),
-            )
+            if "second_dataset" in payload:
+                analysis = fit_joint_datasets(
+                    payload["eis_dataset"],
+                    payload["second_dataset"],
+                    payload["model"],
+                    max_f=payload.get("max_f", 10),
+                )
+            else:
+                analysis = fit_eis_dataset(
+                    payload["eis_dataset"],
+                    payload["model"],
+                )
             self._send_json({"analysis": analysis})
         except (KeyError, TypeError, ValueError, RuntimeError) as exc:
             self._send_json({"error": str(exc)}, status=400)

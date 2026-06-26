@@ -113,6 +113,22 @@ def validate_circuit_pair(
     }
 
 
+def eis_parameter_names(circuit_1: str, constants: Optional[dict[str, float]] = None) -> list[str]:
+    constants = constants or {}
+    parsed = _parse_circuit(circuit_1, EIS_ELEMENT_PARAMS, EIS_GROUPS, "EIS circuit_1")
+    if parsed.errors:
+        raise ValueError("; ".join(parsed.errors))
+    if not parsed.elements:
+        raise ValueError("EIS circuit_1 is required for an EIS-only fit.")
+
+    names: list[str] = []
+    seen: set[str] = set()
+    for element in parsed.elements:
+        for name in _element_parameter_names(element):
+            _append_parameter_name(names, seen, name, constants)
+    return names
+
+
 @dataclass
 class CircuitParse:
     elements: list[str]

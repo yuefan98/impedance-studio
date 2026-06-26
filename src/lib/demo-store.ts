@@ -61,10 +61,19 @@ export type JointFitInput = {
   max_f: number;
 };
 
+export type EisFitInput = {
+  eis_dataset: Dataset;
+  model: ModelTemplate;
+};
+
 export type JointFitAnalysis = {
   preprocessing: JointPreprocessing;
   eis: { dataset: Dataset; result: FitResult };
   second: { dataset: Dataset; result: FitResult };
+};
+
+export type EisFitAnalysis = {
+  eis: { dataset: Dataset; result: FitResult };
 };
 
 const CONDITIONS = ["10a", "10f", "30a", "30f", "40a", "40f", "50a", "50f", "60a", "60f"];
@@ -249,14 +258,35 @@ class DemoStore {
     };
   }
 
-  runJointFit(payload: RunPayload, batch = false, analysis?: JointFitAnalysis) {
-    if (!analysis) {
-      throw new Error("A joint fit requires an nleis.EISandNLEIS analysis result from the selected execution engine.");
-    }
+  jointFitInputs(payload: RunPayload): JointFitInput[] {
     const projectId = payload.project_id || this.defaultProjectId();
     const model = this.requireModel(payload.model_id || this.defaultModelId(projectId));
-    const preprocessing = analysis.preprocessing;
-    const fittedDatasets = [analysis.eis, analysis.second];
+    return this.jointDatasetPairs(payload, projectId).map(({ eis, second }) => ({
+      eis_dataset: eis,
+      second_dataset: second,
+      model,
+      max_f: payload.max_f ?? 10,
+    }));
+  }
+
+  eisFitInput(payload: RunPayload): EisFitInput {
+    const projectId = payload.project_id || this.defaultProjectId();
+    const model = this.requireModel(payload.model_id || this.defaultModelId(projectId));
+    return {
+      eis_dataset: this.eisDataset(payload, projectId),
+      model,
+    };
+  }
+
+  runJointFit(payload: RunPayload, batch = false, analysis?: JointFitAnalysis | JointFitAnalysis[]) {
+    if (!analysis || (Array.isArray(analysis) && !analysis.length)) {
+      throw new Error("A joint fit requires an nleis.EISandNLEIS analysis result from the selected execution engine.");
+    }
+    const analyses = Array.isArray(analysis) ? analysis : [analysis];
+    const projectId = payload.project_id || this.defaultProjectId();
+    const model = this.requireModel(payload.model_id || this.defaultModelId(projectId));
+    const preprocessing = analyses[0].preprocessing;
+    const fittedDatasets = analyses.flatMap((item) => [item.eis, item.second]);
     const now = this.now();
     const runId = this.id("run");
     const snapshots: ModelTemplate[] = [];
@@ -300,13 +330,68 @@ class DemoStore {
       completed_at: now,
       summary: {
         dataset_count: fittedDatasets.length,
+        pair_count: analyses.length,
         fit_mode: "joint",
         max_f: preprocessing.max_f,
         preprocessing_method: preprocessing.method,
-        run_name: payload.run_name || "Joint fit",
+        run_name: payload.run_name || (batch ? "Batch joint fit" : "Joint fit"),
       },
       items,
       snapshots,
+    };
+    this.runs.unshift(run);
+    return run;
+  }
+
+  runEisFit(payload: RunPayload, analysis?: EisFitAnalysis) {
+    if (!analysis) {
+      throw new Error("An EIS-only fit requires an impedance.py analysis result from the selected execution engine.");
+    }
+    const projectId = payload.project_id || this.defaultProjectId();
+    const model = this.requireModel(payload.model_id || this.defaultModelId(projectId));
+    const { dataset, result } = analysis.eis;
+    const now = this.now();
+    const runId = this.id("run");
+    const item = {
+      id: this.id("item"),
+      run_id: runId,
+      dataset_id: dataset.id,
+      status: "completed",
+      progress: 100,
+      message: "EIS-only fit completed with impedance.py",
+      result,
+    };
+    const snapshot = this.createModel({
+      project_id: projectId,
+      name: `${model.name} EIS fit to ${dataset.name}`,
+      kind: "snapshot",
+      circuit_1: model.circuit_1,
+      circuit_2: "",
+      initial_guess: model.initial_guess,
+      bounds: model.bounds,
+      constants: model.constants,
+      shared_parameters: [],
+      fitted_parameters: result.parameters,
+      validation_summary: result.validation,
+      plot_series: result.plot_series,
+      source_run_id: runId,
+    });
+    const run: Run = {
+      id: runId,
+      project_id: projectId,
+      model_id: model.id,
+      mode: "eis-fit",
+      status: "completed",
+      progress: 100,
+      started_at: now,
+      completed_at: now,
+      summary: {
+        dataset_count: 1,
+        fit_mode: "eis",
+        run_name: payload.run_name || "EIS-only fit",
+      },
+      items: [item],
+      snapshots: [snapshot],
     };
     this.runs.unshift(run);
     return run;
@@ -392,6 +477,39 @@ class DemoStore {
       throw new Error("Selected datasets must belong to the active project.");
     }
     return { eis, second };
+  }
+
+  private jointDatasetPairs(payload: RunPayload, projectId: string) {
+    const requestedIds = payload.dataset_ids || [];
+    const candidates = requestedIds.length ? requestedIds.map((datasetId) => this.requireDataset(datasetId)) : this.listDatasets(projectId);
+    for (const dataset of candidates) {
+      if (dataset.project_id !== projectId) throw new Error("Selected datasets must belong to the active project.");
+    }
+    const eisDatasets = candidates.filter((dataset) => dataset.kind === "EIS");
+    const secondsByKey = new Map(
+      candidates
+        .filter((dataset) => dataset.kind === "2nd-NLEIS")
+        .map((dataset) => [datasetPairKey(dataset), dataset]),
+    );
+    if (eisDatasets.length === 1 && secondsByKey.size === 1) {
+      return [{ eis: eisDatasets[0], second: [...secondsByKey.values()][0] }];
+    }
+    const pairs = eisDatasets.flatMap((eis) => {
+      const second = secondsByKey.get(datasetPairKey(eis));
+      return second ? [{ eis, second }] : [];
+    });
+    if (!pairs.length) throw new Error("Batch joint fitting requires at least one matched EIS and 2nd-NLEIS pair.");
+    return pairs;
+  }
+
+  private eisDataset(payload: RunPayload, projectId: string) {
+    const requested = (payload.dataset_ids || []).map((datasetId) => this.requireDataset(datasetId));
+    const dataset = payload.eis_dataset_id
+      ? this.requireDataset(payload.eis_dataset_id)
+      : requested.find((candidate) => candidate.kind === "EIS") ?? this.listDatasets(projectId).find((candidate) => candidate.kind === "EIS");
+    if (!dataset || dataset.kind !== "EIS") throw new Error("EIS-only fitting requires one EIS dataset.");
+    if (dataset.project_id !== projectId) throw new Error("Selected datasets must belong to the active project.");
+    return dataset;
   }
 
   private requireProject(projectId: string) {
@@ -565,4 +683,12 @@ function findHeader(headers: string[], candidates: string[]) {
 
 function average(values: number[]) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function datasetPairKey(dataset: Dataset) {
+  const name = (dataset.name || dataset.source_name).trim().toLowerCase();
+  for (const suffix of ["_2nd-nleis", "-2nd-nleis", " 2nd-nleis", "_eis", "-eis", " eis"]) {
+    if (name.endsWith(suffix)) return name.slice(0, -suffix.length);
+  }
+  return name;
 }

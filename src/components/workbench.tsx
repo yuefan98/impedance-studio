@@ -15,7 +15,7 @@ import { RunResults } from "./workbench/run-results";
 import { useWorkbenchState } from "./workbench/use-workbench-state";
 import { WorkspaceSidebar } from "./workbench/workspace-sidebar";
 import type { BusyAction, ModelDraftUpdate } from "./workbench/types";
-import { filterDatasets, filterModels, getParameterNames, inferSharedParameters, syncInitialGuessText } from "./workbench/utils";
+import { filterDatasets, filterModels, getParameterNames, inferSharedParameters, matchedDatasetPairs, syncInitialGuessText } from "./workbench/utils";
 
 export function Workbench() {
   const { dispatch, guessEntries, guessValues, state } = useWorkbenchState();
@@ -50,6 +50,10 @@ export function Workbench() {
   const snapshots = models.filter((model) => model.kind === "snapshot");
   const filteredDatasets = useMemo(() => filterDatasets(datasets, state.search), [datasets, state.search]);
   const filteredModels = useMemo(() => filterModels(models, state.search), [models, state.search]);
+  const allPairDatasetIds = useMemo(
+    () => matchedDatasetPairs(datasets).flatMap(({ eis, second }) => [eis.id, second.id]),
+    [datasets],
+  );
 
   useEffect(() => {
     activeProjectIdRef.current = state.activeProjectId;
@@ -405,13 +409,12 @@ export function Workbench() {
   }
 
   async function runJointFit(batch: boolean) {
-    const ids = [state.eisDatasetId, state.secondDatasetId].filter(Boolean);
+    const ids = batch ? state.includedDatasetIds : [state.eisDatasetId, state.secondDatasetId].filter(Boolean);
     if (
       !state.activeProjectId ||
       !state.activeModelId ||
-      ids.length !== 2 ||
-      state.maxFrequency <= 0 ||
-      !ids.every((id) => state.includedDatasetIds.includes(id))
+      (batch ? ids.length < 2 : ids.length !== 2) ||
+      state.maxFrequency <= 0
     ) {
       return;
     }
@@ -441,6 +444,32 @@ export function Workbench() {
         // Vercel Preview uses an ephemeral API store. Keep the real completed
         // response visible for this browser session instead of immediately
         // replacing it with a fresh store on the follow-up GET /runs request.
+        setRuns((current) => [result.run, ...current.filter((run) => run.id !== result.run.id)]);
+        if (result.run.snapshots?.length) {
+          setModels((current) => [
+            ...result.run.snapshots!,
+            ...current.filter((model) => !result.run.snapshots?.some((snapshot) => snapshot.id === model.id)),
+          ]);
+        }
+      }
+      dispatch({ type: "selectRun", runId: result.run.id, itemId: result.run.items[0]?.id });
+      dispatch({ type: "setView", view: "runs" });
+    });
+  }
+
+  async function runEisFit() {
+    if (!state.activeProjectId || !state.activeModelId || !state.eisDatasetId) return;
+    await runAction("eis", async () => {
+      const result = await analysisClient.runEisFit({
+        project_id: state.activeProjectId,
+        model_id: state.activeModelId,
+        dataset_ids: [state.eisDatasetId],
+        eis_dataset_id: state.eisDatasetId,
+        run_name: state.runName,
+      });
+      if (executionConfig.mode === "local") {
+        await refresh();
+      } else {
         setRuns((current) => [result.run, ...current.filter((run) => run.id !== result.run.id)]);
         if (result.run.snapshots?.length) {
           setModels((current) => [
@@ -539,6 +568,8 @@ export function Workbench() {
               secondDatasetId={state.secondDatasetId}
               onBatch={() => void runJointFit(true)}
               onEisDatasetChange={(datasetId) => dispatch({ type: "selectEisDataset", datasetId })}
+              onEisRun={() => void runEisFit()}
+              onIncludeAllPairs={() => dispatch({ type: "setIncludedDatasets", datasetIds: allPairDatasetIds })}
               onIncludeDataset={(datasetId) => dispatch({ type: "toggleIncludedDataset", datasetId })}
               onMaxFrequencyChange={(maxFrequency) => dispatch({ type: "setMaxFrequency", maxFrequency })}
               onModelChange={(modelId) => {

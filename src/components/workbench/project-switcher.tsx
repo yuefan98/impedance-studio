@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import type { Health, Project } from "@/lib/types";
 import { StatusBadge } from "./common";
 
@@ -24,12 +27,23 @@ export function ProjectSwitcher({
   onProjectNameChange: (name: string) => void;
   onProjectSelect: (id: string) => void;
 }) {
+  const [creating, setCreating] = useState(false);
+
   return (
     <header aria-label="Workspace context" className="control-bar">
-      <div className="context-summary">
-        <span>Project</span>
-        <strong>{activeProject?.name ?? "Local workspace"}</strong>
-        <small>{health?.mode ?? "analysis adapter"} / {selectedCount} fit datasets selected</small>
+      <div className="project-topline">
+        <div className="context-summary">
+          <span>Project</span>
+          <strong>{activeProject?.name ?? "Local workspace"}</strong>
+          <small>{health?.mode ?? "analysis adapter"} / {selectedCount} batch datasets selected</small>
+        </div>
+        <div className="project-actions">
+          <StatusBadge tone={health?.ok ? "good" : "neutral"}>{health?.ok ? "API ready" : "Checking"}</StatusBadge>
+          <button disabled={busy} onClick={() => setCreating((value) => !value)}>{creating ? "Close" : "New project"}</button>
+          <button className="danger" disabled={!activeProject || busy || projects.length <= 1} onClick={() => activeProject && onDeleteProject(activeProject)}>
+            Delete
+          </button>
+        </div>
       </div>
       <div className="project-switcher">
         <label>
@@ -40,17 +54,24 @@ export function ProjectSwitcher({
             ))}
           </select>
         </label>
-        <label>
-          <span>New project name</span>
-          <input value={newProjectName} onChange={(event) => onProjectNameChange(event.target.value)} />
-        </label>
-        <div className="project-actions">
-          <StatusBadge tone={health?.ok ? "good" : "neutral"}>{health?.ok ? "API ready" : "Checking"}</StatusBadge>
-          <button disabled={busy} onClick={onCreateProject}>Add project</button>
-          <button className="danger" disabled={!activeProject || busy || projects.length <= 1} onClick={() => activeProject && onDeleteProject(activeProject)}>
-            Delete project
-          </button>
-        </div>
+        {creating && (
+          <div className="project-create-row">
+            <label>
+              <span>New project name</span>
+              <input value={newProjectName} onChange={(event) => onProjectNameChange(event.target.value)} />
+            </label>
+            <button
+              className="primary"
+              disabled={busy || !newProjectName.trim()}
+              onClick={() => {
+                onCreateProject();
+                setCreating(false);
+              }}
+            >
+              Create project
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

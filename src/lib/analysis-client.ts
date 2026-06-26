@@ -151,7 +151,18 @@ export const analysisClient = {
     request<{ run: Run }>("/runs/batch-joint-fit", {
       method: "POST",
       body: JSON.stringify(body),
-  }),
+    }),
+  runEisFit: (body: {
+    project_id: string;
+    model_id: string;
+    dataset_ids: string[];
+    eis_dataset_id: string;
+    run_name?: string;
+  }) =>
+    request<{ run: Run }>("/runs/eis-fit", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };
 
 function normaliseApiBase(value: string) {

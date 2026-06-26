@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { demoStore, type JointFitAnalysis } from "@/lib/demo-store";
+import { demoStore, type EisFitAnalysis, type EisFitInput, type JointFitAnalysis, type JointFitInput } from "@/lib/demo-store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -48,8 +48,9 @@ async function handleRequest(method: "GET" | "POST" | "DELETE", request: Request
       if (path.startsWith("/models/") && path.endsWith("/load-as-initial")) {
         return json({ model: store.loadModelAsInitial(path.split("/")[2]) });
       }
-      if (path === "/runs/joint-fit") return json({ run: store.runJointFit(body, false, await runJointFit(request, store, body)) });
-      if (path === "/runs/batch-joint-fit") return json({ run: store.runJointFit(body, true, await runJointFit(request, store, body)) });
+      if (path === "/runs/joint-fit") return json({ run: store.runJointFit(body, false, await runJointFit(request, store.jointFitInput(body))) });
+      if (path === "/runs/batch-joint-fit") return json({ run: store.runJointFit(body, true, await runBatchJointFit(request, store, body)) });
+      if (path === "/runs/eis-fit") return json({ run: store.runEisFit(body, await runEisFit(request, store.eisFitInput(body))) });
     }
 
     if (method === "DELETE") {
@@ -68,7 +69,28 @@ function json(payload: unknown, status = 200) {
   return NextResponse.json(payload, { status });
 }
 
-async function runJointFit(request: Request, store: ReturnType<typeof demoStore>, body: Record<string, unknown>) {
+async function runJointFit(request: Request, input: JointFitInput) {
+  const payload = await runFitAnalysis<JointFitAnalysis>(request, input);
+  if (!payload.analysis?.preprocessing) {
+    throw new Error(payload.error || "The nleis fitting service did not return a joint analysis.");
+  }
+  return payload.analysis;
+}
+
+async function runBatchJointFit(request: Request, store: ReturnType<typeof demoStore>, body: Record<string, unknown>) {
+  const inputs = store.jointFitInputs(body);
+  return Promise.all(inputs.map((input) => runJointFit(request, input)));
+}
+
+async function runEisFit(request: Request, input: EisFitInput) {
+  const payload = await runFitAnalysis<EisFitAnalysis>(request, input);
+  if (!payload.analysis?.eis) {
+    throw new Error(payload.error || "The impedance.py fitting service did not return an EIS analysis.");
+  }
+  return payload.analysis;
+}
+
+async function runFitAnalysis<TAnalysis>(request: Request, input: JointFitInput | EisFitInput) {
   if (!process.env.VERCEL && !process.env.ANALYSIS_ENGINE_URL) {
     throw new Error("This browser preview does not run scientific fits. Select Local Python mode or use the deployed Vercel fitting service.");
   }
@@ -81,15 +103,15 @@ async function runJointFit(request: Request, store: ReturnType<typeof demoStore>
       "Content-Type": "application/json",
       ...(usesInternalEngine && request.headers.get("cookie") ? { cookie: request.headers.get("cookie") as string } : {}),
     },
-    body: JSON.stringify(store.jointFitInput(body)),
+    body: JSON.stringify(input),
     cache: "no-store",
   });
   const contentType = response.headers.get("content-type") || "";
   const payload = contentType.includes("application/json")
-    ? (await response.json()) as { analysis?: JointFitAnalysis; error?: string }
+    ? (await response.json()) as { analysis?: TAnalysis; error?: string }
     : { error: `The nleis fitting service returned ${response.status} without a JSON response.` };
   if (!response.ok || !payload.analysis) {
     throw new Error(payload.error || "The nleis fitting service did not return an analysis.");
   }
-  return payload.analysis;
+  return payload;
 }

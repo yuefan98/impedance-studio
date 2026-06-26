@@ -87,6 +87,11 @@ class LocalExecutionManager:
         if not inspected["ready"]:
             raise RuntimeError(inspected["detail"])
         if _same_executable(executable, sys.executable):
+            if "second_dataset" not in payload:
+                return direct_fit(
+                    payload["eis_dataset"],
+                    payload["model"],
+                )
             return direct_fit(
                 payload["eis_dataset"],
                 payload["second_dataset"],

@@ -1,6 +1,7 @@
 import type { Dataset, Health, ModelTemplate } from "@/lib/types";
 import type { ReactNode } from "react";
 import { PanelHeader, ParameterSummary, StatusBadge } from "./common";
+import { matchedDatasetPairs } from "./utils";
 
 export function FitSetup({
   activeModel,
@@ -16,6 +17,8 @@ export function FitSetup({
   secondDatasetId,
   onBatch,
   onEisDatasetChange,
+  onEisRun,
+  onIncludeAllPairs,
   onIncludeDataset,
   onMaxFrequencyChange,
   onModelChange,
@@ -36,6 +39,8 @@ export function FitSetup({
   secondDatasetId: string;
   onBatch: () => void;
   onEisDatasetChange: (id: string) => void;
+  onEisRun: () => void;
+  onIncludeAllPairs: () => void;
   onIncludeDataset: (id: string) => void;
   onMaxFrequencyChange: (frequency: number) => void;
   onModelChange: (id: string) => void;
@@ -47,17 +52,29 @@ export function FitSetup({
   const secondDatasets = datasets.filter((dataset) => dataset.kind === "2nd-NLEIS");
   const eisDataset = datasets.find((dataset) => dataset.id === eisDatasetId);
   const secondDataset = datasets.find((dataset) => dataset.id === secondDatasetId);
-  const selectedPairIncluded = Boolean(
-    eisDataset &&
-      secondDataset &&
-      includedDatasetIds.includes(eisDataset.id) &&
-      includedDatasetIds.includes(secondDataset.id),
+  const batchPairs = matchedDatasetPairs(datasets.filter((dataset) => includedDatasetIds.includes(dataset.id)));
+  const allPairDatasetIds = matchedDatasetPairs(datasets).flatMap(({ eis, second }) => [eis.id, second.id]);
+  const allPairsSelected = Boolean(
+    allPairDatasetIds.length && allPairDatasetIds.every((datasetId) => includedDatasetIds.includes(datasetId)),
   );
-  const canRun = Boolean(selectedPairIncluded && activeModel && maxFrequency > 0 && health?.optional_libraries.nleis);
+  const canRunJoint = Boolean(eisDataset && secondDataset && activeModel && maxFrequency > 0 && health?.optional_libraries.nleis);
+  const canRunBatch = Boolean(batchPairs.length && activeModel && maxFrequency > 0 && health?.optional_libraries.nleis);
+  const canRunEis = Boolean(eisDataset && activeModel && (health?.optional_libraries.impedance || health?.optional_libraries.nleis));
 
   return (
     <section className="panel config-panel">
-      <PanelHeader title="Fit setup" meta="joint EIS + 2nd-NLEIS" actions={<StatusBadge tone={canRun ? "good" : "neutral"}>{includedDatasetIds.length} selected</StatusBadge>} />
+      <PanelHeader
+        title="Fit setup"
+        meta="EIS, selected joint pair, or matched-pair batch"
+        actions={
+          <>
+            <StatusBadge tone={batchPairs.length ? "good" : "neutral"}>{batchPairs.length} batch pairs</StatusBadge>
+            <button disabled={allPairsSelected || !allPairDatasetIds.length || busyAction !== null} onClick={onIncludeAllPairs}>
+              Select all pairs
+            </button>
+          </>
+        }
+      />
       <label className="field-readout">
         <span>Run name</span>
         <input value={runName} onChange={(event) => onRunNameChange(event.target.value)} />
@@ -112,8 +129,9 @@ export function FitSetup({
       </div>
       <ParameterSummary model={activeModel} />
       <div className="stacked-actions">
-        <button disabled={!canRun || busyAction !== null} onClick={onRun}>Run selected fit</button>
-        <button className="primary" disabled={!canRun || busyAction !== null} onClick={onBatch}>Run batch joint fit</button>
+        <button disabled={!canRunEis || busyAction !== null} onClick={onEisRun}>Run EIS-only fit</button>
+        <button disabled={!canRunJoint || busyAction !== null} onClick={onRun}>Run selected joint fit</button>
+        <button className="primary" disabled={!canRunBatch || busyAction !== null} onClick={onBatch}>Run batch joint fit</button>
       </div>
     </section>
   );
@@ -149,7 +167,7 @@ function DatasetFitPicker({
         disabled={!dataset}
         onClick={() => dataset && onInclude(dataset.id)}
       >
-        {included ? "Included in fit" : "Include in fit"}
+        {included ? "In batch" : "Add to batch"}
       </button>
     </div>
   );

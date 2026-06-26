@@ -26,14 +26,18 @@ export function RunResults({
   onRunItemSelect: (itemId: string) => void;
 }) {
   const activeResult = activeRunItem?.result;
+  const isEisOnlyRun = activeRun?.mode === "eis-fit";
   const activeRunDataset = datasets.find((dataset) => dataset.id === activeRunItem?.dataset_id);
   const eisDataset = datasets.find((dataset) => dataset.id === eisDatasetId);
   const secondDataset = datasets.find((dataset) => dataset.id === secondDatasetId);
-  const activeEisResult = activeRun?.items.find((item) => item.dataset_id === eisDatasetId)?.result;
+  const activeEisResult = isEisOnlyRun ? activeResult : activeRun?.items.find((item) => item.dataset_id === eisDatasetId)?.result;
   const activeSecondResult = activeRun?.items.find((item) => item.dataset_id === secondDatasetId)?.result;
   const displayedEis = useMemo(
-    () => preprocessing?.eis ?? resultDataset(eisDataset, activeEisResult?.plot_series.data),
-    [activeEisResult?.plot_series.data, eisDataset, preprocessing?.eis],
+    () => {
+      if (isEisOnlyRun) return resultDataset(activeRunDataset, activeEisResult?.plot_series.data);
+      return preprocessing?.eis ?? resultDataset(eisDataset, activeEisResult?.plot_series.data);
+    },
+    [activeEisResult?.plot_series.data, activeRunDataset, eisDataset, isEisOnlyRun, preprocessing?.eis],
   );
   const displayedSecond = useMemo(
     () => preprocessing?.second ?? resultDataset(secondDataset, activeSecondResult?.plot_series.data),
@@ -54,7 +58,13 @@ export function RunResults({
       <section className="panel results-panel">
         <PanelHeader
           title="Results"
-          meta={preprocessing ? `nleis.py preprocessing / max f ${formatFrequency(preprocessing.max_f)}` : activeRun?.id ?? "preprocessing data"}
+          meta={
+            isEisOnlyRun
+              ? "EIS-only fit"
+              : preprocessing
+                ? `nleis.py preprocessing / max f ${formatFrequency(preprocessing.max_f)}`
+                : activeRun?.id ?? "preprocessing data"
+          }
         />
         <div className="plot-canvas plot-stack">
           <PlotCard
@@ -66,15 +76,17 @@ export function RunResults({
             yKey="z_imag"
             invertY
           />
-          <PlotCard
-            title="2nd-NLEIS Nyquist: Z2'' versus Z2'"
-            rows={displayedSecond?.rows ?? []}
-            comparisonDatasets={secondComparisonDatasets}
-            fitRows={secondFitRows}
-            xKey="z_real"
-            yKey="z_imag"
-            invertY
-          />
+          {!isEisOnlyRun && (
+            <PlotCard
+              title="2nd-NLEIS Nyquist: Z2'' versus Z2'"
+              rows={displayedSecond?.rows ?? []}
+              comparisonDatasets={secondComparisonDatasets}
+              fitRows={secondFitRows}
+              xKey="z_real"
+              yKey="z_imag"
+              invertY
+            />
+          )}
         </div>
         <div className="metric-grid">
           {metricCards.map((card) => (
@@ -96,8 +108,12 @@ export function RunResults({
           <dd>{activeRunDataset?.name ?? activeDataset?.name ?? "-"}</dd>
           <dt>Adapter</dt>
           <dd>{activeResult?.adapter ?? "-"}</dd>
-          <dt>2nd-NLEIS max f</dt>
-          <dd>{preprocessing ? formatFrequency(preprocessing.max_f) : "-"}</dd>
+          {!isEisOnlyRun && (
+            <>
+              <dt>2nd-NLEIS max f</dt>
+              <dd>{preprocessing ? formatFrequency(preprocessing.max_f) : "-"}</dd>
+            </>
+          )}
           <dt>Status</dt>
           <dd>{activeRun ? <StatusBadge tone={activeRun.status === "completed" ? "good" : "neutral"}>{activeRun.status}</StatusBadge> : "not run"}</dd>
         </dl>

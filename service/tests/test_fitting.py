@@ -3,7 +3,7 @@ import warnings
 
 import numpy as np
 
-from impedance_studio.fitting import fit_joint_datasets
+from impedance_studio.fitting import fit_eis_dataset, fit_joint_datasets
 
 
 def dataset(kind, rows):
@@ -69,6 +69,37 @@ class FittingTests(unittest.TestCase):
         np.testing.assert_allclose(result["parameters"], [1.0, 2.0, 0.01], rtol=1e-3, atol=1e-7)
         self.assertGreater(len(result["plot_series"]["fit"]), 0)
         self.assertGreater(len(analysis["second"]["result"]["plot_series"]["fit"]), 0)
+
+    def test_real_impedance_fit_recovers_synthetic_eis_parameters(self):
+        """Exercise impedance.py through nleis-registered elements for EIS-only fits."""
+        try:
+            from nleis import EISandNLEIS
+        except ModuleNotFoundError as exc:
+            self.fail("nleis==0.3 must be installed in the Python environment used for tests.")
+
+        frequencies = np.logspace(4, -2, 24)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Simulating circuit based on initial parameters")
+            source = EISandNLEIS("RC0", "RCn0", initial_guess=[1.0, 2.0, 0.01])
+            eis, _second = source.predict(frequencies, max_f=1e5)
+
+        analysis = fit_eis_dataset(
+            dataset("EIS", rows(frequencies, eis)),
+            {
+                "circuit_1": "RC0",
+                "circuit_2": "RCn0",
+                "initial_guess": [0.8, 1.7, 0.008],
+                "constants": {},
+                "bounds": {},
+            },
+        )
+
+        result = analysis["eis"]["result"]
+        self.assertEqual(result["adapter"], "impedance.CustomCircuit")
+        self.assertEqual(result["fit_mode"], "eis")
+        self.assertEqual(len(result["parameters"]), 2)
+        np.testing.assert_allclose(result["parameters"], [1.0, 2.0], rtol=1e-3, atol=1e-7)
+        self.assertGreater(len(result["plot_series"]["fit"]), 0)
 
 
 if __name__ == "__main__":

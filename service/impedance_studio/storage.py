@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional, Union
 
 from .circuits import validate_circuit_pair
-from .fitting import fit_joint_datasets
+from .fitting import fit_eis_dataset, fit_joint_datasets
 from .importers import generate_synthetic_dataset, parse_autolab_import, parse_table_import
 from .preprocessing import DEFAULT_MAX_F, preprocess_joint_datasets
 from .sample_data import load_manuscript_samples, manuscript_sample
@@ -310,16 +310,34 @@ class StudioStore:
         project_id = payload.get("project_id") or self._default_project_id()
         model_id = payload.get("model_id") or self._default_model_id(project_id)
         model = self._get_model(model_id)
-        eis_dataset, second_dataset = self._joint_datasets(payload, project_id)
         runner = fit_runner or fit_joint_datasets
-        analysis = runner(
-            eis_dataset,
-            second_dataset,
-            model,
-            max_f=payload.get("max_f", DEFAULT_MAX_F),
-        )
-        preprocessing = analysis["preprocessing"]
-        fitted_datasets = [analysis["eis"], analysis["second"]]
+        if batch:
+            pairs = self._joint_dataset_pairs(payload, project_id)
+            analyses = [
+                runner(
+                    eis_dataset,
+                    second_dataset,
+                    model,
+                    max_f=payload.get("max_f", DEFAULT_MAX_F),
+                )
+                for eis_dataset, second_dataset in pairs
+            ]
+        else:
+            eis_dataset, second_dataset = self._joint_datasets(payload, project_id)
+            analyses = [
+                runner(
+                    eis_dataset,
+                    second_dataset,
+                    model,
+                    max_f=payload.get("max_f", DEFAULT_MAX_F),
+                )
+            ]
+        fitted_datasets = [
+            fitted
+            for analysis in analyses
+            for fitted in (analysis["eis"], analysis["second"])
+        ]
+        preprocessing = analyses[0]["preprocessing"]
         run_id = _id()
         started = _now()
         self.connection.execute(
@@ -339,8 +357,9 @@ class StudioStore:
                 _json(
                     {
                         "dataset_count": len(fitted_datasets),
+                        "pair_count": len(analyses),
                         "fit_mode": "joint",
-                        "run_name": payload.get("run_name") or "Joint fit",
+                        "run_name": payload.get("run_name") or ("Batch joint fit" if batch else "Joint fit"),
                         "max_f": preprocessing["max_f"],
                         "preprocessing_method": preprocessing["method"],
                     }
@@ -392,6 +411,83 @@ class StudioStore:
             )
         self.connection.commit()
         return self._decode_run(run_id) | {"items": items, "snapshots": snapshots}
+
+    def run_eis_fit(
+        self,
+        payload: dict[str, Any],
+        *,
+        fit_runner: Callable[..., dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        project_id = payload.get("project_id") or self._default_project_id()
+        model_id = payload.get("model_id") or self._default_model_id(project_id)
+        model = self._get_model(model_id)
+        eis_dataset = self._eis_dataset(payload, project_id)
+        runner = fit_runner or fit_eis_dataset
+        analysis = runner(eis_dataset, model)
+        fitted = analysis["eis"]
+        dataset = fitted["dataset"]
+        result = fitted["result"]
+        run_id = _id()
+        started = _now()
+        self.connection.execute(
+            """
+            insert into runs (id, project_id, model_id, mode, status, progress, started_at, completed_at, summary_json)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                project_id,
+                model_id,
+                "eis-fit",
+                "completed",
+                100,
+                started,
+                _now(),
+                _json(
+                    {
+                        "dataset_count": 1,
+                        "fit_mode": "eis",
+                        "run_name": payload.get("run_name") or "EIS-only fit",
+                    }
+                ),
+            ),
+        )
+        item_id = _id()
+        self.connection.execute(
+            """
+            insert into run_items (id, run_id, dataset_id, status, progress, message, result_json)
+            values (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (item_id, run_id, dataset["id"], "completed", 100, "EIS-only fit completed", _json(result)),
+        )
+        item = {
+            "id": item_id,
+            "run_id": run_id,
+            "dataset_id": dataset["id"],
+            "status": "completed",
+            "progress": 100,
+            "message": "EIS-only fit completed",
+            "result": result,
+        }
+        snapshot = self.create_model(
+            {
+                "project_id": project_id,
+                "name": f"{model['name']} EIS fit to {dataset['name']}",
+                "kind": "snapshot",
+                "circuit_1": model["circuit_1"],
+                "circuit_2": "",
+                "initial_guess": model["initial_guess"],
+                "bounds": model["bounds"],
+                "constants": model["constants"],
+                "shared_parameters": [],
+                "fitted_parameters": result["parameters"],
+                "validation_summary": result["validation"],
+                "plot_series": result["plot_series"],
+                "source_run_id": run_id,
+            }
+        )
+        self.connection.commit()
+        return self._decode_run(run_id) | {"items": [item], "snapshots": [snapshot]}
 
     def list_runs(self, project_id: Optional[str] = None) -> list[dict[str, Any]]:
         query = "select * from runs"
@@ -590,6 +686,46 @@ class StudioStore:
             raise ValueError("Selected datasets must belong to the active project.")
         return eis_dataset, second_dataset
 
+    def _joint_dataset_pairs(self, payload: dict[str, Any], project_id: str) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+        requested_ids = payload.get("dataset_ids") or []
+        candidates = [self._get_dataset(dataset_id) for dataset_id in requested_ids] if requested_ids else self.list_datasets(project_id)
+        for dataset in candidates:
+            if dataset["project_id"] != project_id:
+                raise ValueError("Selected datasets must belong to the active project.")
+        eis_datasets = [dataset for dataset in candidates if dataset["kind"] == "EIS"]
+        second_by_key = {
+            _dataset_pair_key(dataset): dataset
+            for dataset in candidates
+            if dataset["kind"] == "2nd-NLEIS"
+        }
+        if len(eis_datasets) == 1 and len(second_by_key) == 1:
+            return [(eis_datasets[0], next(iter(second_by_key.values())))]
+        pairs = [
+            (dataset, second_by_key[_dataset_pair_key(dataset)])
+            for dataset in eis_datasets
+            if _dataset_pair_key(dataset) in second_by_key
+        ]
+        if not pairs:
+            raise ValueError("Batch joint fitting requires at least one matched EIS and 2nd-NLEIS pair.")
+        return pairs
+
+    def _eis_dataset(self, payload: dict[str, Any], project_id: str) -> dict[str, Any]:
+        dataset_id = payload.get("eis_dataset_id") or payload.get("dataset_id")
+        if dataset_id:
+            dataset = self._get_dataset(dataset_id)
+        else:
+            requested_ids = payload.get("dataset_ids") or []
+            requested = [self._get_dataset(candidate) for candidate in requested_ids]
+            dataset = next(
+                (candidate for candidate in requested if candidate["kind"] == "EIS"),
+                next((candidate for candidate in self.list_datasets(project_id) if candidate["kind"] == "EIS"), None),
+            )
+        if not dataset or dataset["kind"] != "EIS":
+            raise ValueError("EIS-only fitting requires one EIS dataset.")
+        if dataset["project_id"] != project_id:
+            raise ValueError("Selected datasets must belong to the active project.")
+        return dataset
+
     def _get_dataset(self, dataset_id: str) -> dict[str, Any]:
         row = self.connection.execute("select * from datasets where id = ?", (dataset_id,)).fetchone()
         if not row:
@@ -652,6 +788,14 @@ def _documented_joint_tds_template(project_id: str) -> dict[str, Any]:
         "constants": {},
         "shared_parameters": list(DOCUMENTED_JOINT_TDS_SHARED_PARAMETERS),
     }
+
+
+def _dataset_pair_key(dataset: dict[str, Any]) -> str:
+    name = str(dataset.get("name") or dataset.get("source_name") or "").strip().lower()
+    for suffix in ("_2nd-nleis", "-2nd-nleis", " 2nd-nleis", "_eis", "-eis", " eis"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
 
 
 def _id() -> str:

@@ -355,6 +355,123 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(self.store.list_runs(project["id"])[0]["status"], "completed")
         self.assertEqual(run["items"][0]["result"]["adapter"], "nleis.EISandNLEIS")
 
+    def test_batch_joint_fit_runs_all_matched_selected_pairs(self):
+        project = self.store.create_project("Batch pairs")
+        rows = [
+            {"frequency": 10.0, "z_real": 1.0, "z_imag": -0.1, "z_abs": 1.0, "phase": -5.0},
+            {"frequency": 1.0, "z_real": 2.0, "z_imag": -0.2, "z_abs": 2.0, "phase": -6.0},
+        ]
+
+        def add_dataset(name, kind):
+            return self.store._insert_dataset(
+                project["id"],
+                {
+                    "name": name,
+                    "kind": kind,
+                    "source_name": f"{name}.csv",
+                    "point_count": len(rows),
+                    "freq_min": 1.0,
+                    "freq_max": 10.0,
+                    "temperature_c": 25,
+                    "rows": rows,
+                },
+            )
+
+        eis_a = add_dataset("cell_a_EIS", "EIS")
+        second_a = add_dataset("cell_a_2nd-NLEIS", "2nd-NLEIS")
+        eis_b = add_dataset("cell_b_EIS", "EIS")
+        second_b = add_dataset("cell_b_2nd-NLEIS", "2nd-NLEIS")
+        model = self.store.create_model(
+            {
+                "project_id": project["id"],
+                "name": "Batch model",
+                "circuit_1": "RC0",
+                "circuit_2": "RCn0",
+                "initial_guess": [1, 2, 3],
+            }
+        )
+        called_pairs = []
+
+        def fake_runner(eis_dataset, second_dataset, model, *, max_f):
+            called_pairs.append((eis_dataset["name"], second_dataset["name"]))
+
+            def result(dataset):
+                return {
+                    "fit_mode": "joint",
+                    "adapter": "fake",
+                    "circuit_1": model["circuit_1"],
+                    "circuit_2": model["circuit_2"],
+                    "parameters": [1, 2, 3],
+                    "confidence": [0, 0, 0],
+                    "validation": {"method": "fake", "chi_square": 0, "status": "pass", "message": "ok"},
+                    "plot_series": {"data": dataset["rows"], "fit": dataset["rows"]},
+                }
+
+            return {
+                "preprocessing": {
+                    "max_f": max_f,
+                    "method": "fake-preprocessing",
+                    "inductance_points_removed": 0,
+                    "second_points_removed": 0,
+                    "eis": eis_dataset,
+                    "second": second_dataset,
+                },
+                "eis": {"dataset": eis_dataset, "result": result(eis_dataset)},
+                "second": {"dataset": second_dataset, "result": result(second_dataset)},
+            }
+
+        run = self.store.run_joint_fit(
+            {
+                "project_id": project["id"],
+                "model_id": model["id"],
+                "dataset_ids": [eis_a["id"], second_a["id"], eis_b["id"], second_b["id"]],
+                "max_f": 10,
+            },
+            batch=True,
+            fit_runner=fake_runner,
+        )
+
+        self.assertEqual(called_pairs, [("cell_a_EIS", "cell_a_2nd-NLEIS"), ("cell_b_EIS", "cell_b_2nd-NLEIS")])
+        self.assertEqual(run["mode"], "batch-joint-fit")
+        self.assertEqual(run["summary"]["pair_count"], 2)
+        self.assertEqual(len(run["items"]), 4)
+        self.assertEqual(len(run["snapshots"]), 4)
+
+    def test_eis_fit_persists_single_eis_run(self):
+        project, eis, _second, model = self.real_fit_fixture()
+
+        def fake_runner(eis_dataset, model):
+            return {
+                "eis": {
+                    "dataset": eis_dataset,
+                    "result": {
+                        "fit_mode": "eis",
+                        "adapter": "impedance.CustomCircuit",
+                        "circuit_1": model["circuit_1"],
+                        "circuit_2": "",
+                        "parameters": [1, 2],
+                        "confidence": [0, 0],
+                        "validation": {"method": "fake", "chi_square": 0, "status": "pass", "message": "ok"},
+                        "plot_series": {"data": eis_dataset["rows"], "fit": eis_dataset["rows"]},
+                    },
+                }
+            }
+
+        run = self.store.run_eis_fit(
+            {
+                "project_id": project["id"],
+                "model_id": model["id"],
+                "eis_dataset_id": eis["id"],
+            },
+            fit_runner=fake_runner,
+        )
+
+        self.assertEqual(run["mode"], "eis-fit")
+        self.assertEqual(run["summary"]["fit_mode"], "eis")
+        self.assertEqual(len(run["items"]), 1)
+        self.assertEqual(run["items"][0]["dataset_id"], eis["id"])
+        self.assertEqual(run["items"][0]["result"]["adapter"], "impedance.CustomCircuit")
+
     def test_joint_preprocessing_is_used_for_preview_and_fit(self):
         project, eis, second, model = self.real_fit_fixture()
         payload = {

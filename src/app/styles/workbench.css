@@ -204,9 +204,8 @@
 
 .control-bar {
   display: grid;
-  grid-template-columns: minmax(220px, 0.8fr) minmax(520px, 1.2fr);
-  align-items: center;
-  gap: 14px;
+  grid-template-columns: 1fr;
+  gap: 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.86);
@@ -214,12 +213,18 @@
   padding: 10px;
 }
 
+.project-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
 .context-summary {
   display: grid;
   min-width: 0;
   gap: 1px;
-  padding-right: 14px;
-  border-right: 1px solid var(--border);
 }
 
 .context-summary span {
@@ -248,7 +253,14 @@
 
 .project-switcher {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto;
+  grid-template-columns: minmax(220px, 0.55fr) minmax(300px, 1fr);
+  align-items: end;
+  gap: 8px;
+}
+
+.project-create-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
   align-items: end;
   gap: 8px;
 }
@@ -1052,8 +1064,14 @@
   .run-layout,
   .database-layout,
   .models-layout,
-  .project-switcher {
+  .project-switcher,
+  .project-create-row {
     grid-template-columns: 1fr;
+  }
+
+  .project-topline {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .run-layout,
@@ -1075,8 +1093,7 @@
   }
 
   .context-summary {
-    padding-right: 0;
-    border-right: 0;
+    width: 100%;
   }
 
   .project-actions,
